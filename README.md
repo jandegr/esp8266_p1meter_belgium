@@ -40,7 +40,7 @@ Connect the esp8266 to an RJ11 cable/connector following the diagram.
 
 On most Landys and Gyr models a 10K resistor should be used between the ESP's 3.3v and the p1's DATA (RXD) pin. Many howto's mention RTS requires 5V (VIN) to activate the P1 port, but for me 3V3 suffices.
 
-![Wiring](https://github.com/KurtKeunen/esp8266_p1meter_belgium/blob/main/assets/esp8266_p1meter_bb.png)
+![Wiring](https://github.com/jandegr/esp8266_p1meter_belgium/blob/main/assets/esp8266_p1meter_bb.png)
 
 ### Optional: Powering the esp8266 using your DSMR5+ meter 
 <p>
@@ -49,7 +49,7 @@ When using a RJ12 cable you can use the power source provided by the meter.
 | P1 pin   | ESP8266 Pin |
 | ----     | ---- |
 | 1 - 5v out | 5v or Vin |
-| 2 - RTS  | 3.3v |
+| 2 - RTS  |  |
 | 3 - GND  | GND  |
 | 4 -      |      |
 | 5 - RXD (data) | RX (gpio3) |
