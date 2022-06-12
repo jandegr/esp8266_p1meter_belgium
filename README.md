@@ -3,7 +3,8 @@
 Software for the ESP2866 that sends P1 smart meter data to an mqtt broker (with OTA firmware updates)
 
 ## about this fork
-This fork from https://github.com/daniel-jong/esp8266_p1meter (tries) to add support for the Belgian smart meters which are differently configured than their dutch counterparts 
+This fork from https://github.com/daniel-jong/esp8266_p1meter (tries) to add support for the Belgian smart meters which are differently configured than their dutch counterparts.
+Wat info van Fluvius //https://www.fluvius.be/sites/fluvius/files/2020-01/dmk-demo-v2.1-rtc.pdf
 
 # Getting started
 This setup requires:
