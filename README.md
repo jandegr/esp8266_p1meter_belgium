@@ -90,7 +90,7 @@ sensors/power/p1meter/short_power_peaks 0
 
 ## Home Assistant Configuration
 
-Use this [example](https://github.com/KurtKeunen/esp8266_p1meter_belgium/blob/main/assets/p1_sensors.yaml) for home assistant's `sensor.yaml`
+Use this [example](https://github.com/jandegr/esp8266_p1meter_belgium/blob/main/assets/p1_sensors.yaml) for home assistant's `sensor.yaml`
 
 ## Thanks to
 
