@@ -1,3 +1,4 @@
+#include <dummy.h>
 #include <FS.h>
 #include <EEPROM.h>
 #include <DNSServer.h>
@@ -33,9 +34,6 @@ void configModeCallback(WiFiManager *myWiFiManager)
 
     // * If you used auto generated SSID, print it
     Serial.println(myWiFiManager->getConfigPortalSSID());
-
-    // * Entered config mode, make led toggle faster
-    ticker.attach(0.2, tick);
 }
 
 // **********************************
@@ -128,7 +126,7 @@ void send_metric(String name, long metric)
 }
 
 void send_data_to_broker()
-{
+{    
     send_metric("consumption_low_tarif", CONSUMPTION_LOW_TARIF);
     send_metric("consumption_high_tarif", CONSUMPTION_HIGH_TARIF);
     send_metric("returndelivery_low_tarif", RETURNDELIVERY_LOW_TARIF);
@@ -161,9 +159,9 @@ void send_data_to_broker()
 
 unsigned int CRC16(unsigned int crc, unsigned char *buf, int len)
 {
-	for (int pos = 0; pos < len; pos++)
+  for (int pos = 0; pos < len; pos++)
     {
-		crc ^= (unsigned int)buf[pos];    // * XOR byte into least sig. byte of crc
+    crc ^= (unsigned int)buf[pos];    // * XOR byte into least sig. byte of crc
                                           // * Loop over each bit
         for (int i = 8; i != 0; i--)
         {
@@ -172,15 +170,15 @@ unsigned int CRC16(unsigned int crc, unsigned char *buf, int len)
             {
                 // * Shift right and XOR 0xA001
                 crc >>= 1;
-				crc ^= 0xA001;
-			}
+        crc ^= 0xA001;
+      }
             // * Else LSB is not set
             else
                 // * Just shift right
                 crc >>= 1;
-		}
-	}
-	return crc;
+    }
+  }
+  return crc;
 }
 
 bool isNumber(char *res, int len)
@@ -267,36 +265,37 @@ bool decode_telegram(int len)
         currentCRC = CRC16(currentCRC, (unsigned char*) telegram, len);
     }
 
-    // 1-0:1.8.1(000992.992*kWh)
-    // 1-0:1.8.1 = Elektra verbruik laag tarief (DSMR v4.0)
-    if (strncmp(telegram, "1-0:1.8.1", strlen("1-0:1.8.1")) == 0)
+
+    // 1-0:1.8.2(000992.992*kWh)
+    // 1-0:1.8.2 = Elektriciteit verbruik laag tarief (DSMR v5.0)
+    if (strncmp(telegram, "1-0:1.8.2", strlen("1-0:1.8.2")) == 0)
     {
         CONSUMPTION_LOW_TARIF = getValue(telegram, len, '(', '*');
     }
 
-    // 1-0:1.8.2(000560.157*kWh)
-    // 1-0:1.8.2 = Elektra verbruik hoog tarief (DSMR v4.0)
-    if (strncmp(telegram, "1-0:1.8.2", strlen("1-0:1.8.2")) == 0)
+    // 1-0:1.8.1(000560.157*kWh)
+    // 1-0:1.8.1 = Elektriciteit verbruik hoog tarief (DSMR v5.0)
+    if (strncmp(telegram, "1-0:1.8.1", strlen("1-0:1.8.1")) == 0)
     {
         CONSUMPTION_HIGH_TARIF = getValue(telegram, len, '(', '*');
     }
-	
-    // 1-0:2.8.1(000560.157*kWh)
-    // 1-0:2.8.1 = Elektra teruglevering laag tarief (DSMR v4.0)
-    if (strncmp(telegram, "1-0:2.8.1", strlen("1-0:2.8.1")) == 0)
+  
+    // 1-0:2.8.2(000560.157*kWh)
+    // 1-0:2.8.2 = Elektriciteit teruglevering laag tarief (DSMR v5.0)
+    if (strncmp(telegram, "1-0:2.8.2", strlen("1-0:2.8.2")) == 0)
     {
         RETURNDELIVERY_LOW_TARIF = getValue(telegram, len, '(', '*');
     }
 
-    // 1-0:2.8.2(000560.157*kWh)
-    // 1-0:2.8.2 = Elektra teruglevering hoog tarief (DSMR v4.0)
-    if (strncmp(telegram, "1-0:2.8.2", strlen("1-0:2.8.2")) == 0)
+    // 1-0:2.8.1(000560.157*kWh)
+    // 1-0:2.8.1 = Elektriciteit teruglevering hoog tarief (DSMR v5.0)
+    if (strncmp(telegram, "1-0:2.8.1", strlen("1-0:2.8.1")) == 0)
     {
         RETURNDELIVERY_HIGH_TARIF = getValue(telegram, len, '(', '*');
     }
 
     // 1-0:1.7.0(00.424*kW) Actueel verbruik
-    // 1-0:1.7.x = Electricity consumption actual usage (DSMR v4.0)
+    // 1-0:1.7.x = Electricity consumption actual usage (DSMR v5.0)
     if (strncmp(telegram, "1-0:1.7.0", strlen("1-0:1.7.0")) == 0)
     {
         ACTUAL_CONSUMPTION = getValue(telegram, len, '(', '*');
@@ -368,8 +367,8 @@ bool decode_telegram(int len)
     }
 
     // 0-1:24.2.1(150531200000S)(00811.923*m3)
-    // 0-1:24.2.1 = Gas (DSMR v4.0) on Kaifa MA105 meter
-    if (strncmp(telegram, "0-1:24.2.1", strlen("0-1:24.2.1")) == 0)
+    // 0-1:24.2.1 = Gas (DSMR v5.0) on Kaifa MA105 meter
+    if (strncmp(telegram, "0-1:24.2.3", strlen("0-1:24.2.3")) == 0)
     {
         GAS_METER_M3 = getValue(telegram, len, '(', '*');
     }
