@@ -3,20 +3,20 @@
 #include <EEPROM.h>
 #include <DNSServer.h>
 #if defined(ESP8266)
-#include <ESP8266WiFi.h>
-HardwareSerial receivingSerial = Serial;
+  #include <ESP8266WiFi.h>
+  HardwareSerial receivingSerial = Serial;
 #endif
 #if defined(ESP32)
-#include <Wifi.h>
-HardwareSerial receivingSerial = Serial2;
+  #include <Wifi.h>
+  HardwareSerial receivingSerial = Serial2;
 #endif
 #include <Ticker.h>
 #include <WiFiManager.h>
 #if defined(ESP8266)
-#include <ESP8266mDNS.h>
+  #include <ESP8266mDNS.h>
 #endif
 #if defined(ESP32)
-#include <ESPmDNS.h>
+  #include <ESPmDNS.h>
 #endif
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
@@ -36,6 +36,8 @@ WiFiClient espClient;
 PubSubClient mqtt_client(espClient);
 
 struct tm testTimeInfo;
+
+bool shouldSaveConfig = false;
 
 // **********************************
 // * Ticker (System LED Blinker)    *
@@ -226,7 +228,6 @@ long getValue(char *buffer, int maxlen, char startchar, char endchar)
 
     char res[16];
     memset(res, 0, sizeof(res));
-    // Serial.println("getValue -- enter");
 
     if (!((l + s + 1) > s)) {
         Serial.println("malformed input");
@@ -257,13 +258,11 @@ bool decodeTelegram(int len)
     int endChar = FindCharInArrayRev(telegram, '!', len);
     bool validCRCFound = false;
 
-    // Serial.print("len = " + String(len));
 
     for (int cnt = 0; cnt < len; cnt++)
     {
         Serial.print(telegram[cnt]);
     }
-    // Serial.print("\n");
 
     if (startChar >= 0)
     {
@@ -272,13 +271,12 @@ bool decodeTelegram(int len)
     }
     else if (endChar >= 0)
     {
+        char messageCRC[5];
+        memset (messageCRC, 0, sizeof(messageCRC));
         // * Add to crc calc
         currentCRC = CRC16(currentCRC, (unsigned char *)telegram + endChar, 1);
 
-        char messageCRC[5];
         strncpy(messageCRC, telegram + endChar + 1, 4);
-
-        messageCRC[4] = 0; // * Thanks to HarmOtten (issue 5)
         validCRCFound = (strtol(messageCRC, NULL, 16) == currentCRC);
         Serial.print("CRC = ");
         Serial.println(currentCRC, HEX);
@@ -298,32 +296,32 @@ bool decodeTelegram(int len)
     if (strncmp(telegram, "1", 1) == 0)
     {
         // 1-0:1.8.1(000992.992*kWh)
-        // 1-0:1.8.1 = Elektra verbruik laag tarief (DSMR v4.0)
-        if (strncmp(telegram, "1-0:1.8.1", strlen("1-0:1.8.1")) == 0)
+        // 1-0:1.8.1 = Elektriciteit verbruik laag tarief (DSMR v5.0)
+        if (strncmp(telegram, "1-0:1.8.2", strlen("1-0:1.8.2")) == 0)
         {
             CONSUMPTION_LOW_TARIF = getValue(telegram, len, '(', '*');
         }
         else
 
             // 1-0:1.8.2(000560.157*kWh)
-            // 1-0:1.8.2 = Elektra verbruik hoog tarief (DSMR v4.0)
-            if (strncmp(telegram, "1-0:1.8.2", strlen("1-0:1.8.2")) == 0)
+            // 1-0:1.8.2 = Elektriciteit verbruik hoog tarief (DSMR v5.0)
+            if (strncmp(telegram, "1-0:1.8.1", strlen("1-0:1.8.1")) == 0)
             {
                 CONSUMPTION_HIGH_TARIF = getValue(telegram, len, '(', '*');
             }
             else
 
                 // 1-0:2.8.1(000560.157*kWh)
-                // 1-0:2.8.1 = Elektra teruglevering laag tarief (DSMR v4.0)
-                if (strncmp(telegram, "1-0:2.8.1", strlen("1-0:2.8.1")) == 0)
+                // 1-0:2.8.1 = Elektriciteit injectie laag tarief (DSMR v5.0)
+                if (strncmp(telegram, "1-0:2.8.2", strlen("1-0:2.8.2")) == 0)
                 {
                     RETURNDELIVERY_LOW_TARIF = getValue(telegram, len, '(', '*');
                 }
                 else
 
                     // 1-0:2.8.2(000560.157*kWh)
-                    // 1-0:2.8.2 = Elektra teruglevering hoog tarief (DSMR v4.0)
-                    if (strncmp(telegram, "1-0:2.8.2", strlen("1-0:2.8.2")) == 0)
+                    // 1-0:2.8.2 = Elektriciteit injectie hoog tarief (DSMR v5.0)
+                    if (strncmp(telegram, "1-0:2.8.1", strlen("1-0:2.8.1")) == 0)
                     {
                         RETURNDELIVERY_HIGH_TARIF = getValue(telegram, len, '(', '*');
                     }
@@ -337,7 +335,7 @@ bool decodeTelegram(int len)
                         }
                         else
 
-                            // 1-0:2.7.0(00.000*kW) Actuele teruglevering (-P) in 1 Watt resolution
+                            // 1-0:2.7.0(00.000*kW) Actuele injectie in 1 Watt resolution
                             if (strncmp(telegram, "1-0:2.7.0", strlen("1-0:2.7.0")) == 0)
                             {
                                 ACTUAL_RETURNDELIVERY = getValue(telegram, len, '(', '*');
@@ -369,21 +367,21 @@ bool decodeTelegram(int len)
                                         else
 
                                             // 1-0:31.7.0(002*A)
-                                            // 1-0:31.7.0 = Instantane stroom Elektriciteit L1
+                                            // 1-0:31.7.0 = stroom Elektriciteit L1
                                             if (strncmp(telegram, "1-0:31.7.0", strlen("1-0:31.7.0")) == 0)
                                             {
                                                 L1_INSTANT_POWER_CURRENT = getValue(telegram, len, '(', '*');
                                             }
                                             else
                                                 // 1-0:51.7.0(002*A)
-                                                // 1-0:51.7.0 = Instantane stroom Elektriciteit L2
+                                                // 1-0:51.7.0 = stroom Elektriciteit L2
                                                 if (strncmp(telegram, "1-0:51.7.0", strlen("1-0:51.7.0")) == 0)
                                                 {
                                                     L2_INSTANT_POWER_CURRENT = getValue(telegram, len, '(', '*');
                                                 }
                                                 else
                                                     // 1-0:71.7.0(002*A)
-                                                    // 1-0:71.7.0 = Instantane stroom Elektriciteit L3
+                                                    // 1-0:71.7.0 = stroom Elektriciteit L3
                                                     if (strncmp(telegram, "1-0:71.7.0", strlen("1-0:71.7.0")) == 0)
                                                     {
                                                         L3_INSTANT_POWER_CURRENT = getValue(telegram, len, '(', '*');
@@ -431,8 +429,8 @@ bool decodeTelegram(int len)
     {
 
         // 0-1:24.2.1(150531200000S)(00811.923*m3)
-        // 0-1:24.2.1 = Gas (DSMR v4.0) on Kaifa MA105 meter
-        if (strncmp(telegram, "0-1:24.2.1", strlen("0-1:24.2.1")) == 0)
+        // 0-1:24.2.1 = Gas (DSMR v5.0)
+        if (strncmp(telegram, "0-1:24.2.3", strlen("0-1:24.2.3")) == 0)
         {
             GAS_METER_M3 = getValue(telegram, len, '(', '*');
         }
@@ -560,7 +558,7 @@ void write_eeprom(int offset, int len, String value)
 // * Callback for saving WIFI config        *
 // ******************************************
 
-bool shouldSaveConfig = false;
+
 
 // * Callback notifying us of the need to save config
 void save_wifi_config_callback()
@@ -665,15 +663,15 @@ void setup()
     ticker.attach(0.6, tick);
 
     // * Get MQTT Server settings
-    // String settings_available = read_eeprom(134, 1);
+    String settings_available = read_eeprom(134, 1);
 
-    // if (settings_available == "1")
-    //{
-    //     read_eeprom(0, 64).toCharArray(MQTT_HOST, 64);   // * 0-63
-    //     read_eeprom(64, 6).toCharArray(MQTT_PORT, 6);    // * 64-69
-    //     read_eeprom(70, 32).toCharArray(MQTT_USER, 32);  // * 70-101
-    //     read_eeprom(102, 32).toCharArray(MQTT_PASS, 32); // * 102-133
-    // }
+    if (settings_available == "1")
+    {
+         read_eeprom(0, 64).toCharArray(MQTT_HOST, 64);   // * 0-63
+         read_eeprom(64, 6).toCharArray(MQTT_PORT, 6);    // * 64-69
+         read_eeprom(70, 32).toCharArray(MQTT_USER, 32);  // * 70-101
+         read_eeprom(102, 32).toCharArray(MQTT_PASS, 32); // * 102-133
+     }
 
     // WiFiManagerParameter CUSTOM_MQTT_HOST("host", "MQTT hostname", MQTT_HOST, 64);
     // WiFiManagerParameter CUSTOM_MQTT_PORT("port", "MQTT port", MQTT_PORT, 6);
@@ -681,19 +679,19 @@ void setup()
     // WiFiManagerParameter CUSTOM_MQTT_PASS("pass", "MQTT pass", MQTT_PASS, 32);
 
     // * WiFiManager local initialization. Once its business is done, there is no need to keep it around
-    // WiFiManager wifiManager;
+    WiFiManager wifiManager;
 
     // * Reset settings - uncomment for testing
     // wifiManager.resetSettings();
 
     // * Set callback that gets called when connecting to previous WiFi fails, and enters Access Point mode
-    // wifiManager.setAPCallback(configModeCallback);
+    wifiManager.setAPCallback(configModeCallback);
 
     // * Set timeout
-    // wifiManager.setConfigPortalTimeout(WIFI_TIMEOUT);
+    wifiManager.setConfigPortalTimeout(WIFI_TIMEOUT);
 
     // * Set save config callback
-    // wifiManager.setSaveConfigCallback(save_wifi_config_callback);
+    wifiManager.setSaveConfigCallback(save_wifi_config_callback);
 
     // * Add all your parameters here
     // wifiManager.addParameter(&CUSTOM_MQTT_HOST);
@@ -721,14 +719,14 @@ void setup()
     // * Save the custom parameters to FS
     if (shouldSaveConfig)
     {
-        //    Serial.println(F("Saving WiFiManager config"));
+        Serial.println(F("Saving WiFiManager config"));
 
-        //    write_eeprom(0, 64, MQTT_HOST);   // * 0-63
-        //    write_eeprom(64, 6, MQTT_PORT);   // * 64-69
-        //    write_eeprom(70, 32, MQTT_USER);  // * 70-101
-        //    write_eeprom(102, 32, MQTT_PASS); // * 102-133
-        //    write_eeprom(134, 1, "1");        // * 134 --> always "1"
-        //    EEPROM.commit();
+        write_eeprom(0, 64, MQTT_HOST);   // * 0-63
+        write_eeprom(64, 6, MQTT_PORT);   // * 64-69
+        write_eeprom(70, 32, MQTT_USER);  // * 70-101
+        write_eeprom(102, 32, MQTT_PASS); // * 102-133
+        write_eeprom(134, 1, "1");        // * 134 --> always "1"
+        EEPROM.commit();
     }
 
     // * If you get here you have connected to the WiFi
