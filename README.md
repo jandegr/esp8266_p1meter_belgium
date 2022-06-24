@@ -1,3 +1,5 @@
+changes to make this work on both ESP8266 and ESP32 underway in https://github.com/jandegr/esp8266_p1meter_belgium/tree/esp_unified_version
+
 # esp8266_p1meter_belgium
 
 Software for the ESP2866 that sends P1 smart meter data to an mqtt broker (with OTA firmware updates)
