@@ -57,6 +57,8 @@ When using a RJ12 cable you can use the power source provided by the meter.
 | 5 - RXD (data) | RX (gpio3) |
 | 6 - GND  | GND  |
 
+![RJ12](https://github.com/jandegr/esp8266_p1meter_belgium/blob/main/assets/RJ12.png) 
+  
 ![Wiring powered by meter](https://github.com/jandegr/esp8266_p1meter_belgium/blob/main/assets/P1_powered_by_meter.png)
 
 </p>
