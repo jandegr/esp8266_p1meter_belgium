@@ -9,6 +9,8 @@
 #if defined(ESP32)
   #include <Wifi.h>
   HardwareSerial receivingSerial = Serial2;
+  #define RXD2 15
+  #define TXD2 14
 #endif
 #include <Ticker.h>
 #include <WiFiManager.h>
@@ -479,7 +481,7 @@ bool decodeTelegram(int len)
                         // Sunday, November 01 2019 09:03:45
                         // Serial.println(&testTimeInfo, "%A, %B %d %Y %H:%M:%S"); // struct tm testTimeInfo is Posix !!
                         // November 01 2019 09:03:45
-                        Serial.println(&testTimeInfo, "%B %d %Y %H:%M:%S"); // struct tm testTimeInfo is Posix !!
+                        // Serial.println(&testTimeInfo, "%B %d %Y %H:%M:%S");
                     }
     }
 
@@ -493,7 +495,6 @@ bool processLine(int len)
     yield();
 
     return (decodeTelegram(len + 1));
-    //return false;
 }
 
 void readP1Hardwareserial()
@@ -647,8 +648,6 @@ void setup()
 #endif
 
 #if defined(ESP32)
-#define RXD2 15
-#define TXD2 14
     Serial.begin(BAUD_RATE1);
     Serial2.begin(BAUD_RATE, SERIAL_8N1, RXD2, TXD2, true); // INVERT
     receivingSerial = Serial2;
@@ -673,10 +672,10 @@ void setup()
          read_eeprom(102, 32).toCharArray(MQTT_PASS, 32); // * 102-133
      }
 
-    // WiFiManagerParameter CUSTOM_MQTT_HOST("host", "MQTT hostname", MQTT_HOST, 64);
-    // WiFiManagerParameter CUSTOM_MQTT_PORT("port", "MQTT port", MQTT_PORT, 6);
-    // WiFiManagerParameter CUSTOM_MQTT_USER("user", "MQTT user", MQTT_USER, 32);
-    // WiFiManagerParameter CUSTOM_MQTT_PASS("pass", "MQTT pass", MQTT_PASS, 32);
+    WiFiManagerParameter CUSTOM_MQTT_HOST("host", "MQTT hostname", MQTT_HOST, 64);
+    WiFiManagerParameter CUSTOM_MQTT_PORT("port", "MQTT port", MQTT_PORT, 6);
+    WiFiManagerParameter CUSTOM_MQTT_USER("user", "MQTT user", MQTT_USER, 32);
+    WiFiManagerParameter CUSTOM_MQTT_PASS("pass", "MQTT pass", MQTT_PASS, 32);
 
     // * WiFiManager local initialization. Once its business is done, there is no need to keep it around
     WiFiManager wifiManager;
@@ -776,6 +775,8 @@ void loop()
 
     if (now - LAST_UPDATE_SENT > UPDATE_INTERVAL)
     {
+        digitalWrite(LED_BUILTIN, HIGH);
         readP1Hardwareserial();
+        digitalWrite(LED_BUILTIN, LOW);
     }
 }
