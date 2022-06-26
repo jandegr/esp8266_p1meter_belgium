@@ -3,11 +3,13 @@
 // **********************************
 
 // Update treshold in milliseconds, messages will only be sent on this interval
-#define UPDATE_INTERVAL 60000  // 1 minute
+#define UPDATE_INTERVAL 5000
+//#define UPDATE_INTERVAL 60000  // 1 minute
 //#define UPDATE_INTERVAL 300000 // 5 minutes
 
 // * Baud rate for both hardware and software 
 #define BAUD_RATE 115200
+#define BAUD_RATE1 115200
 
 // The used serial pins, note that this can only be UART0, as other serial port doesn't support inversion
 // By default the UART0 serial will be used. These settings displayed here just as a reference. 
@@ -21,7 +23,7 @@
 #define HOSTNAME "p1meter"
 
 // * The password used for OTA
-#define OTA_PASSWORD "test123"
+#define OTA_PASSWORD "admin"
 
 // * Wifi timeout in milliseconds
 #define WIFI_TIMEOUT 30000
@@ -43,36 +45,34 @@ char MQTT_PORT[6]  = "";
 char MQTT_USER[32] = "";
 char MQTT_PASS[32] = "";
 
-// * Set to store received telegram
-char telegram[P1_MAXLINELENGTH];
+
 
 // * Set to store the data values read
-long CONSUMPTION_LOW_TARIF;
-long CONSUMPTION_HIGH_TARIF;
+long consumptionLowTarif;
+long consumptionHighTarif;
 
-long RETURNDELIVERY_LOW_TARIF;
-long RETURNDELIVERY_HIGH_TARIF;
+long injectedLowTarif;
+long injectedHighTarif;
 
-long ACTUAL_CONSUMPTION;
-long ACTUAL_RETURNDELIVERY;
+long consumptionPower;
+long injectionPower;
 long GAS_METER_M3;
 
-long L1_INSTANT_POWER_USAGE;
-long L2_INSTANT_POWER_USAGE;
-long L3_INSTANT_POWER_USAGE;
-long L1_INSTANT_POWER_CURRENT;
-long L2_INSTANT_POWER_CURRENT;
-long L3_INSTANT_POWER_CURRENT;
-long L1_VOLTAGE;
-long L2_VOLTAGE;
-long L3_VOLTAGE;
+long L1ConsumptionPower;
+long L2ConsumptionPower;
+long L3ConsumptionPower;
+long L1Current;
+long L2Current;
+long L3Current;
+long L1Voltage;
+long L2Voltage;
+long L3Voltage;
 
 // Set to store data counters read
-long ACTUAL_TARIF;
+long actualTarif;
 long SHORT_POWER_OUTAGES;
 long LONG_POWER_OUTAGES;
 long SHORT_POWER_DROPS;
 long SHORT_POWER_PEAKS;
 
-// * Set during CRC checking
-unsigned int currentCRC = 0;
+

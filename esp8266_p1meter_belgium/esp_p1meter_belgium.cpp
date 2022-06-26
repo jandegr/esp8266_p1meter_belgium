@@ -3,22 +3,22 @@
 #include <EEPROM.h>
 #include <DNSServer.h>
 #if defined(ESP8266)
-  #include <ESP8266WiFi.h>
-  HardwareSerial receivingSerial = Serial;
+#include <ESP8266WiFi.h>
+HardwareSerial receivingSerial = Serial;
 #endif
 #if defined(ESP32)
-  #include <Wifi.h>
-  HardwareSerial receivingSerial = Serial2;
-  #define RXD2 15
-  #define TXD2 14
+#include <Wifi.h>
+HardwareSerial receivingSerial = Serial2;
+#define RXD2 15
+#define TXD2 14
 #endif
 #include <Ticker.h>
 #include <WiFiManager.h>
 #if defined(ESP8266)
-  #include <ESP8266mDNS.h>
+#include <ESP8266mDNS.h>
 #endif
 #if defined(ESP32)
-  #include <ESPmDNS.h>
+#include <ESPmDNS.h>
 #endif
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
@@ -38,8 +38,16 @@ WiFiClient espClient;
 PubSubClient mqtt_client(espClient);
 
 struct tm testTimeInfo;
-
+struct tm testTimeInfoLast;
+float kwartierVermogen = 0;
+float kwartierVermogenMaand = 0;
+float tellerstand = 0;
 bool shouldSaveConfig = false;
+int startup = 2;
+// * Set during CRC checking
+unsigned int currentCRC = 0;
+// * Set to store received telegram
+char telegram[P1_MAXLINELENGTH];
 
 // **********************************
 // * Ticker (System LED Blinker)    *
@@ -135,44 +143,49 @@ bool mqtt_reconnect()
 
 void send_metric(String name, long metric)
 {
-    Serial.print(F("Sending metric to broker: "));
-    Serial.print(name);
-    Serial.print(F("="));
-    Serial.println(metric);
+    // Serial.print(F("Sending metric to broker: "));
+    // Serial.print(name);
+    // Serial.print(F("="));
+    // Serial.println(metric);
 
-    char output[10];
-    ltoa(metric, output, sizeof(output));
+    ///////////////////////////////
 
-    String topic = String(MQTT_ROOT_TOPIC) + "/" + name;
-    send_mqtt_message(topic.c_str(), output);
+    // char output[10];
+    // ltoa(metric, output, sizeof(output));
+
+    // String topic = String(MQTT_ROOT_TOPIC) + "/" + name;
+    // send_mqtt_message(topic.c_str(), output);
 }
 
 void send_data_to_broker()
 {
-    send_metric("consumption_low_tarif", CONSUMPTION_LOW_TARIF);
-    send_metric("consumption_high_tarif", CONSUMPTION_HIGH_TARIF);
-    send_metric("returndelivery_low_tarif", RETURNDELIVERY_LOW_TARIF);
-    send_metric("returndelivery_high_tarif", RETURNDELIVERY_HIGH_TARIF);
-    send_metric("actual_consumption", ACTUAL_CONSUMPTION);
-    send_metric("actual_returndelivery", ACTUAL_RETURNDELIVERY);
+    send_metric("consumption_low_tarif", consumptionLowTarif);
+    send_metric("consumption_high_tarif", consumptionHighTarif);
+    send_metric("injected_low_tarif", injectedLowTarif);
+    send_metric("injected_high_tarif", injectedHighTarif);
+    send_metric("actual_consumption", consumptionPower);
+    send_metric("actual_injection", injectionPower);
 
-    send_metric("l1_instant_power_usage", L1_INSTANT_POWER_USAGE);
-    send_metric("l2_instant_power_usage", L2_INSTANT_POWER_USAGE);
-    send_metric("l3_instant_power_usage", L3_INSTANT_POWER_USAGE);
-    send_metric("l1_instant_power_current", L1_INSTANT_POWER_CURRENT);
-    send_metric("l2_instant_power_current", L2_INSTANT_POWER_CURRENT);
-    send_metric("l3_instant_power_current", L3_INSTANT_POWER_CURRENT);
-    send_metric("l1_voltage", L1_VOLTAGE);
-    send_metric("l2_voltage", L2_VOLTAGE);
-    send_metric("l3_voltage", L3_VOLTAGE);
+    send_metric("l1_instant_power_usage", L1ConsumptionPower);
+    send_metric("l2_instant_power_usage", L2ConsumptionPower);
+    send_metric("l3_instant_power_usage", L3ConsumptionPower);
+    send_metric("l1_current", L1Current);
+    send_metric("l2_current", L2Current);
+    send_metric("l3_current", L3Current);
+    send_metric("l1_voltage", L1Voltage);
+    send_metric("l2_voltage", L2Voltage);
+    send_metric("l3_voltage", L3Voltage);
 
     send_metric("gas_meter_m3", GAS_METER_M3);
 
-    send_metric("actual_tarif_group", ACTUAL_TARIF);
+    send_metric("actual_tarif_group", actualTarif);
     send_metric("short_power_outages", SHORT_POWER_OUTAGES);
     send_metric("long_power_outages", LONG_POWER_OUTAGES);
     send_metric("short_power_drops", SHORT_POWER_DROPS);
     send_metric("short_power_peaks", SHORT_POWER_PEAKS);
+
+    send_metric("kwartiervermogen", kwartierVermogen);
+    send_metric("kwartiervermogen_maand0", kwartierVermogenMaand);
 }
 
 // **********************************
@@ -231,11 +244,11 @@ long getValue(char *buffer, int maxlen, char startchar, char endchar)
     char res[16];
     memset(res, 0, sizeof(res));
 
-    if (!((l + s + 1) > s)) {
+    if (!((l + s + 1) > s))
+    {
         Serial.println("malformed input");
         return 0;
     }
-
 
     if (strncpy(res, buffer + s + 1, l))
     {
@@ -260,7 +273,6 @@ bool decodeTelegram(int len)
     int endChar = FindCharInArrayRev(telegram, '!', len);
     bool validCRCFound = false;
 
-
     for (int cnt = 0; cnt < len; cnt++)
     {
         Serial.print(telegram[cnt]);
@@ -274,18 +286,18 @@ bool decodeTelegram(int len)
     else if (endChar >= 0)
     {
         char messageCRC[5];
-        memset (messageCRC, 0, sizeof(messageCRC));
+        memset(messageCRC, 0, sizeof(messageCRC));
         // * Add to crc calc
         currentCRC = CRC16(currentCRC, (unsigned char *)telegram + endChar, 1);
 
         strncpy(messageCRC, telegram + endChar + 1, 4);
         validCRCFound = (strtol(messageCRC, NULL, 16) == currentCRC);
-        Serial.print("CRC = ");
-        Serial.println(currentCRC, HEX);
+        // Serial.print("CRC = ");
+        // Serial.println(currentCRC, HEX);
 
-        if (validCRCFound)
-            Serial.println(F("CRC Valid!"));
-        else
+        if (!validCRCFound)
+            //    Serial.println(F("CRC Valid!"));
+            // else
             Serial.println(F("CRC Invalid!"));
 
         currentCRC = 0;
@@ -295,13 +307,15 @@ bool decodeTelegram(int len)
         currentCRC = CRC16(currentCRC, (unsigned char *)telegram, len);
     }
 
+    // L1, L2 en L3 power injectie ontbreken (1-0:22.7.0) enzovoort
+
     if (strncmp(telegram, "1", 1) == 0)
     {
         // 1-0:1.8.1(000992.992*kWh)
         // 1-0:1.8.1 = Elektriciteit verbruik laag tarief (DSMR v5.0)
         if (strncmp(telegram, "1-0:1.8.2", strlen("1-0:1.8.2")) == 0)
         {
-            CONSUMPTION_LOW_TARIF = getValue(telegram, len, '(', '*');
+            consumptionLowTarif = getValue(telegram, len, '(', '*');
         }
         else
 
@@ -309,7 +323,7 @@ bool decodeTelegram(int len)
             // 1-0:1.8.2 = Elektriciteit verbruik hoog tarief (DSMR v5.0)
             if (strncmp(telegram, "1-0:1.8.1", strlen("1-0:1.8.1")) == 0)
             {
-                CONSUMPTION_HIGH_TARIF = getValue(telegram, len, '(', '*');
+                consumptionHighTarif = getValue(telegram, len, '(', '*');
             }
             else
 
@@ -317,7 +331,7 @@ bool decodeTelegram(int len)
                 // 1-0:2.8.1 = Elektriciteit injectie laag tarief (DSMR v5.0)
                 if (strncmp(telegram, "1-0:2.8.2", strlen("1-0:2.8.2")) == 0)
                 {
-                    RETURNDELIVERY_LOW_TARIF = getValue(telegram, len, '(', '*');
+                    injectedLowTarif = getValue(telegram, len, '(', '*');
                 }
                 else
 
@@ -325,22 +339,22 @@ bool decodeTelegram(int len)
                     // 1-0:2.8.2 = Elektriciteit injectie hoog tarief (DSMR v5.0)
                     if (strncmp(telegram, "1-0:2.8.1", strlen("1-0:2.8.1")) == 0)
                     {
-                        RETURNDELIVERY_HIGH_TARIF = getValue(telegram, len, '(', '*');
+                        injectedHighTarif = getValue(telegram, len, '(', '*');
                     }
                     else
 
                         // 1-0:1.7.0(00.424*kW) Actueel verbruik
-                        // 1-0:1.7.x = Electricity consumption actual usage (DSMR v4.0)
+                        // 1-0:1.7.x = Electricity consumption actual usage (DSMR v5.0)
                         if (strncmp(telegram, "1-0:1.7.0", strlen("1-0:1.7.0")) == 0)
                         {
-                            ACTUAL_CONSUMPTION = getValue(telegram, len, '(', '*');
+                            consumptionPower = getValue(telegram, len, '(', '*');
                         }
                         else
 
                             // 1-0:2.7.0(00.000*kW) Actuele injectie in 1 Watt resolution
                             if (strncmp(telegram, "1-0:2.7.0", strlen("1-0:2.7.0")) == 0)
                             {
-                                ACTUAL_RETURNDELIVERY = getValue(telegram, len, '(', '*');
+                                injectionPower = getValue(telegram, len, '(', '*');
                             }
                             else
 
@@ -348,7 +362,7 @@ bool decodeTelegram(int len)
                                 // 1-0:21.7.0 = Instantaan vermogen Elektriciteit levering L1
                                 if (strncmp(telegram, "1-0:21.7.0", strlen("1-0:21.7.0")) == 0)
                                 {
-                                    L1_INSTANT_POWER_USAGE = getValue(telegram, len, '(', '*');
+                                    L1ConsumptionPower = getValue(telegram, len, '(', '*');
                                 }
                                 else
 
@@ -356,7 +370,7 @@ bool decodeTelegram(int len)
                                     // 1-0:41.7.0 = Instantaan vermogen Elektriciteit levering L2
                                     if (strncmp(telegram, "1-0:41.7.0", strlen("1-0:41.7.0")) == 0)
                                     {
-                                        L2_INSTANT_POWER_USAGE = getValue(telegram, len, '(', '*');
+                                        L2ConsumptionPower = getValue(telegram, len, '(', '*');
                                     }
                                     else
 
@@ -364,7 +378,7 @@ bool decodeTelegram(int len)
                                         // 1-0:61.7.0 = Instantaan vermogen Elektriciteit levering L3
                                         if (strncmp(telegram, "1-0:61.7.0", strlen("1-0:61.7.0")) == 0)
                                         {
-                                            L3_INSTANT_POWER_USAGE = getValue(telegram, len, '(', '*');
+                                            L3ConsumptionPower = getValue(telegram, len, '(', '*');
                                         }
                                         else
 
@@ -372,21 +386,21 @@ bool decodeTelegram(int len)
                                             // 1-0:31.7.0 = stroom Elektriciteit L1
                                             if (strncmp(telegram, "1-0:31.7.0", strlen("1-0:31.7.0")) == 0)
                                             {
-                                                L1_INSTANT_POWER_CURRENT = getValue(telegram, len, '(', '*');
+                                                L1Current = getValue(telegram, len, '(', '*');
                                             }
                                             else
                                                 // 1-0:51.7.0(002*A)
                                                 // 1-0:51.7.0 = stroom Elektriciteit L2
                                                 if (strncmp(telegram, "1-0:51.7.0", strlen("1-0:51.7.0")) == 0)
                                                 {
-                                                    L2_INSTANT_POWER_CURRENT = getValue(telegram, len, '(', '*');
+                                                    L2Current = getValue(telegram, len, '(', '*');
                                                 }
                                                 else
                                                     // 1-0:71.7.0(002*A)
                                                     // 1-0:71.7.0 = stroom Elektriciteit L3
                                                     if (strncmp(telegram, "1-0:71.7.0", strlen("1-0:71.7.0")) == 0)
                                                     {
-                                                        L3_INSTANT_POWER_CURRENT = getValue(telegram, len, '(', '*');
+                                                        L3Current = getValue(telegram, len, '(', '*');
                                                     }
                                                     else
 
@@ -394,21 +408,21 @@ bool decodeTelegram(int len)
                                                         // 1-0:32.7.0 = Voltage L1
                                                         if (strncmp(telegram, "1-0:32.7.0", strlen("1-0:32.7.0")) == 0)
                                                         {
-                                                            L1_VOLTAGE = getValue(telegram, len, '(', '*');
+                                                            L1Voltage = getValue(telegram, len, '(', '*');
                                                         }
                                                         else
                                                             // 1-0:52.7.0(232.0*V)
                                                             // 1-0:52.7.0 = Voltage L2
                                                             if (strncmp(telegram, "1-0:52.7.0", strlen("1-0:52.7.0")) == 0)
                                                             {
-                                                                L2_VOLTAGE = getValue(telegram, len, '(', '*');
+                                                                L2Voltage = getValue(telegram, len, '(', '*');
                                                             }
                                                             else
                                                                 // 1-0:72.7.0(232.0*V)
                                                                 // 1-0:72.7.0 = Voltage L3
                                                                 if (strncmp(telegram, "1-0:72.7.0", strlen("1-0:72.7.0")) == 0)
                                                                 {
-                                                                    L3_VOLTAGE = getValue(telegram, len, '(', '*');
+                                                                    L3Voltage = getValue(telegram, len, '(', '*');
                                                                 }
                                                                 else
 
@@ -442,7 +456,7 @@ bool decodeTelegram(int len)
             // 0-0:96.14.0 = Actual Tarif
             if (strncmp(telegram, "0-0:96.14.0", strlen("0-0:96.14.0")) == 0)
             {
-                ACTUAL_TARIF = getValue(telegram, len, '(', ')');
+                actualTarif = getValue(telegram, len, '(', ')');
             }
             else
 
@@ -488,6 +502,53 @@ bool decodeTelegram(int len)
     return validCRCFound;
 }
 
+int getKwartier(tm timeInfo) // nog niet goed, herbegint bij 0 volgende dag en ziet dat niet meer als een nieuw kwartier
+{
+    int kwartier;
+    kwartier = timeInfo.tm_hour * 4;
+    kwartier = kwartier + (timeInfo.tm_min / 15);
+    Serial.print("kwartier = ");
+    Serial.println(kwartier);
+    return kwartier;
+}
+
+void processKwartier()
+{
+    int deltaKwartier = getKwartier(testTimeInfo) > getKwartier(testTimeInfoLast);
+    if (startup > 1 && deltaKwartier > 0)
+    {
+        memcpy(&testTimeInfoLast, &testTimeInfo, sizeof(testTimeInfo));
+        startup = 1;
+    }
+    else if (deltaKwartier > 0)
+    {
+        if (startup)
+        {
+            startup = 0;
+            tellerstand = consumptionHighTarif + consumptionLowTarif;
+        } else
+
+        {
+          kwartierVermogen = ( consumptionHighTarif + consumptionLowTarif - tellerstand) * 4;
+          tellerstand = consumptionHighTarif + consumptionLowTarif; // tellerstand aan begin van het kwartier
+          if (kwartierVermogen > kwartierVermogenMaand)
+          {
+            kwartierVermogenMaand = kwartierVermogen;
+          } 
+        }
+          
+          memcpy(&testTimeInfoLast, &testTimeInfo, sizeof(testTimeInfo));
+          //kwartierVermogen = consumptionPower;
+    }
+    
+    Serial.print("kwartiervermogen maand = ");
+    Serial.println(kwartierVermogenMaand);
+    Serial.print("kwartiervermogen = ");
+    Serial.println(kwartierVermogen);
+    //Serial.print("tellerstand = ");
+    //Serial.println(tellerstand);
+}
+
 bool processLine(int len)
 {
     telegram[len] = '\n';
@@ -515,9 +576,10 @@ void readP1Hardwareserial()
 
             if (processLine(len))
             {
-                // send_data_to_broker();
+                processKwartier();
+                send_data_to_broker();
                 LAST_UPDATE_SENT = millis();
-                Serial.println("send data to broker");
+                // Serial.println("send data to broker");
             }
         }
     }
@@ -558,8 +620,6 @@ void write_eeprom(int offset, int len, String value)
 // ******************************************
 // * Callback for saving WIFI config        *
 // ******************************************
-
-
 
 // * Callback notifying us of the need to save config
 void save_wifi_config_callback()
@@ -632,6 +692,7 @@ void setup_mdns()
 void setup()
 {
     memset(&testTimeInfo, 0, sizeof(testTimeInfo));
+    memset(&testTimeInfoLast, 0, sizeof(testTimeInfoLast));
     // * Configure EEPROM
     EEPROM.begin(512);
 
@@ -666,11 +727,11 @@ void setup()
 
     if (settings_available == "1")
     {
-         read_eeprom(0, 64).toCharArray(MQTT_HOST, 64);   // * 0-63
-         read_eeprom(64, 6).toCharArray(MQTT_PORT, 6);    // * 64-69
-         read_eeprom(70, 32).toCharArray(MQTT_USER, 32);  // * 70-101
-         read_eeprom(102, 32).toCharArray(MQTT_PASS, 32); // * 102-133
-     }
+        read_eeprom(0, 64).toCharArray(MQTT_HOST, 64);   // * 0-63
+        read_eeprom(64, 6).toCharArray(MQTT_PORT, 6);    // * 64-69
+        read_eeprom(70, 32).toCharArray(MQTT_USER, 32);  // * 70-101
+        read_eeprom(102, 32).toCharArray(MQTT_PASS, 32); // * 102-133
+    }
 
     WiFiManagerParameter CUSTOM_MQTT_HOST("host", "MQTT hostname", MQTT_HOST, 64);
     WiFiManagerParameter CUSTOM_MQTT_PORT("port", "MQTT port", MQTT_PORT, 6);
