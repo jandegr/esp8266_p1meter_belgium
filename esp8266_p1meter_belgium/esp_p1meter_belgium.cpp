@@ -41,6 +41,7 @@ struct tm testTimeInfo;
 struct tm testTimeInfoLast;
 float kwartierVermogen = 0;
 float kwartierVermogenMaand = 0;
+float kwartierVermogenVorigeMaand = 0;
 float tellerstand = 0;
 bool shouldSaveConfig = false;
 int startup = 2;
@@ -506,18 +507,40 @@ int getKwartier(tm timeInfo) // nog niet goed, herbegint bij 0 volgende dag en z
 {
     int kwartier;
     kwartier = timeInfo.tm_hour * 4;
+    kwartier = kwartier + ((timeInfo.tm_mday -1)* 96);
     kwartier = kwartier + (timeInfo.tm_min / 15);
     Serial.print("kwartier = ");
     Serial.println(kwartier);
     return kwartier;
 }
 
+
 void processKwartier()
 {
     int deltaKwartier = getKwartier(testTimeInfo) > getKwartier(testTimeInfoLast);
+
+    // eerste poging om nieuwe maand te verwerken
+    if (testTimeInfo.tm_mday < testTimeInfoLast.tm_mday)
+    {
+       kwartierVermogen = ( consumptionHighTarif + consumptionLowTarif - tellerstand) * 4;
+       if (kwartierVermogen > kwartierVermogenMaand)
+          {
+            kwartierVermogenMaand = kwartierVermogen;
+          } 
+       kwartierVermogenVorigeMaand = kwartierVermogenMaand;
+       kwartierVermogenMaand = 0;
+       tellerstand = consumptionHighTarif + consumptionLowTarif; // tellerstand aan begin van het kwartier
+       kwartierVermogen = (float)consumptionPower;
+       memcpy(&testTimeInfoLast, &testTimeInfo, sizeof(testTimeInfo));
+       Serial.println("nieuwe maand begonnen");
+    }
+
     if (startup > 1 && deltaKwartier > 0)
     {
         memcpy(&testTimeInfoLast, &testTimeInfo, sizeof(testTimeInfo));
+        // onderstaande is misschien niet goed ??
+        tellerstand = consumptionHighTarif + consumptionLowTarif;
+
         startup = 1;
     }
     else if (deltaKwartier > 0)
@@ -528,19 +551,35 @@ void processKwartier()
             tellerstand = consumptionHighTarif + consumptionLowTarif;
         } else
 
-        {
+        { // mag wel niet uitgevoerd worden bij aanvang nieuwe maand
           kwartierVermogen = ( consumptionHighTarif + consumptionLowTarif - tellerstand) * 4;
           tellerstand = consumptionHighTarif + consumptionLowTarif; // tellerstand aan begin van het kwartier
           if (kwartierVermogen > kwartierVermogenMaand)
           {
             kwartierVermogenMaand = kwartierVermogen;
+            //kwartierVermogen = consumptionPower; 
           } 
         }
           
           memcpy(&testTimeInfoLast, &testTimeInfo, sizeof(testTimeInfo));
-          //kwartierVermogen = consumptionPower;
+    }
+    else 
+    {
+        // nu lopend kwartiervermogen bepalen
+        // onderstaande nog verrekenen met verstreken tijd
+        float secondenverstreken;
+        secondenverstreken = (testTimeInfo.tm_min % 15) * 60;
+        secondenverstreken = secondenverstreken + testTimeInfo.tm_sec;
+        if (!startup) 
+        {
+          kwartierVermogen = ( consumptionHighTarif + consumptionLowTarif - tellerstand ) / (secondenverstreken / 3600);
+        }
+        Serial.print("secondenverstreken = ");
+        Serial.println(secondenverstreken);
     }
     
+    Serial.print("kwartiervermogen vorige maand = ");
+    Serial.println(kwartierVermogenVorigeMaand);
     Serial.print("kwartiervermogen maand = ");
     Serial.println(kwartierVermogenMaand);
     Serial.print("kwartiervermogen = ");
