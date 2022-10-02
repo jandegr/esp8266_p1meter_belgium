@@ -49,6 +49,8 @@ int startup = 2;
 unsigned int currentCRC = 0;
 // * Set to store received telegram
 char telegram[P1_MAXLINELENGTH];
+xTaskHandle readerTask;
+int badCRC = 0;
 
 // **********************************
 // * Ticker (System LED Blinker)    *
@@ -297,9 +299,10 @@ bool decodeTelegram(int len)
         // Serial.println(currentCRC, HEX);
 
         if (!validCRCFound)
-            //    Serial.println(F("CRC Valid!"));
-            // else
+        {    
             Serial.println(F("CRC Invalid!"));
+            badCRC ++;
+        }
 
         currentCRC = 0;
     }
@@ -503,17 +506,16 @@ bool decodeTelegram(int len)
     return validCRCFound;
 }
 
-int getKwartier(tm timeInfo) // nog niet goed, herbegint bij 0 volgende dag en ziet dat niet meer als een nieuw kwartier
+int getKwartier(tm timeInfo)
 {
     int kwartier;
     kwartier = timeInfo.tm_hour * 4;
-    kwartier = kwartier + ((timeInfo.tm_mday -1)* 96);
+    kwartier = kwartier + ((timeInfo.tm_mday - 1) * 96);
     kwartier = kwartier + (timeInfo.tm_min / 15);
-    Serial.print("kwartier = ");
-    Serial.println(kwartier);
+    // Serial.print("kwartier = ");
+    // Serial.println(kwartier);
     return kwartier;
 }
-
 
 void processKwartier()
 {
@@ -522,17 +524,17 @@ void processKwartier()
     // eerste poging om nieuwe maand te verwerken
     if (testTimeInfo.tm_mday < testTimeInfoLast.tm_mday)
     {
-       kwartierVermogen = ( consumptionHighTarif + consumptionLowTarif - tellerstand) * 4;
-       if (kwartierVermogen > kwartierVermogenMaand)
-          {
+        kwartierVermogen = (consumptionHighTarif + consumptionLowTarif - tellerstand) * 4;
+        if (kwartierVermogen > kwartierVermogenMaand)
+        {
             kwartierVermogenMaand = kwartierVermogen;
-          } 
-       kwartierVermogenVorigeMaand = kwartierVermogenMaand;
-       kwartierVermogenMaand = 0;
-       tellerstand = consumptionHighTarif + consumptionLowTarif; // tellerstand aan begin van het kwartier
-       kwartierVermogen = (float)consumptionPower;
-       memcpy(&testTimeInfoLast, &testTimeInfo, sizeof(testTimeInfo));
-       Serial.println("nieuwe maand begonnen");
+        }
+        kwartierVermogenVorigeMaand = kwartierVermogenMaand;
+        kwartierVermogenMaand = 0;
+        tellerstand = consumptionHighTarif + consumptionLowTarif; // tellerstand aan begin van het kwartier
+        kwartierVermogen = (float)consumptionPower;
+        memcpy(&testTimeInfoLast, &testTimeInfo, sizeof(testTimeInfo));
+        Serial.println("nieuwe maand begonnen");
     }
 
     if (startup > 1 && deltaKwartier > 0)
@@ -549,43 +551,47 @@ void processKwartier()
         {
             startup = 0;
             tellerstand = consumptionHighTarif + consumptionLowTarif;
-        } else
+        }
+        else
 
         { // mag wel niet uitgevoerd worden bij aanvang nieuwe maand
-          kwartierVermogen = ( consumptionHighTarif + consumptionLowTarif - tellerstand) * 4;
-          tellerstand = consumptionHighTarif + consumptionLowTarif; // tellerstand aan begin van het kwartier
-          if (kwartierVermogen > kwartierVermogenMaand)
-          {
-            kwartierVermogenMaand = kwartierVermogen;
-            //kwartierVermogen = consumptionPower; 
-          } 
+            kwartierVermogen = (consumptionHighTarif + consumptionLowTarif - tellerstand) * 4;
+            tellerstand = consumptionHighTarif + consumptionLowTarif; // tellerstand aan begin van het kwartier
+            if (kwartierVermogen > kwartierVermogenMaand)
+            {
+                kwartierVermogenMaand = kwartierVermogen;
+                // kwartierVermogen = consumptionPower;
+            }
         }
-          
-          memcpy(&testTimeInfoLast, &testTimeInfo, sizeof(testTimeInfo));
+
+        memcpy(&testTimeInfoLast, &testTimeInfo, sizeof(testTimeInfo));
     }
-    else 
+    else
     {
         // nu lopend kwartiervermogen bepalen
         // onderstaande nog verrekenen met verstreken tijd
         float secondenverstreken;
         secondenverstreken = (testTimeInfo.tm_min % 15) * 60;
         secondenverstreken = secondenverstreken + testTimeInfo.tm_sec;
-        if (!startup) 
+        if (!startup && secondenverstreken > 0)
         {
-          kwartierVermogen = ( consumptionHighTarif + consumptionLowTarif - tellerstand ) / (secondenverstreken / 3600);
+            kwartierVermogen = (consumptionHighTarif + consumptionLowTarif - tellerstand) / (secondenverstreken / 3600);
+        } else
+        {
+            kwartierVermogen = (float)consumptionPower;
         }
         Serial.print("secondenverstreken = ");
         Serial.println(secondenverstreken);
     }
-    
+
     Serial.print("kwartiervermogen vorige maand = ");
     Serial.println(kwartierVermogenVorigeMaand);
     Serial.print("kwartiervermogen maand = ");
     Serial.println(kwartierVermogenMaand);
     Serial.print("kwartiervermogen = ");
     Serial.println(kwartierVermogen);
-    //Serial.print("tellerstand = ");
-    //Serial.println(tellerstand);
+    Serial.print("badCRC = ");
+    Serial.println(badCRC);
 }
 
 bool processLine(int len)
@@ -597,31 +603,37 @@ bool processLine(int len)
     return (decodeTelegram(len + 1));
 }
 
-void readP1Hardwareserial()
+void readP1Hardwareserial(void *parameter)
 {
-    if (receivingSerial.available())
+    while (true)
     {
-        memset(telegram, 0, sizeof(telegram));
-
-        while (receivingSerial.available())
+        if (receivingSerial.available())
         {
+            digitalWrite(LED_BUILTIN, LOW);
+            memset(telegram, 0, sizeof(telegram));
+
+            while (receivingSerial.available())
+            {
 #if defined(ESP8266)
-            ESP.wdtDisable();
+                ESP.wdtDisable();
 #endif
-            int len = receivingSerial.readBytesUntil('\n', telegram, P1_MAXLINELENGTH);
+                int len = receivingSerial.readBytesUntil('\n', telegram, P1_MAXLINELENGTH);
 #if defined(ESP8266)
-            ESP.wdtEnable(1);
+                ESP.wdtEnable(1);
 #endif
 
-            if (processLine(len))
-            {
-                processKwartier();
-                send_data_to_broker();
-                LAST_UPDATE_SENT = millis();
-                // Serial.println("send data to broker");
+                if (processLine(len))
+                {
+                    processKwartier();
+                    send_data_to_broker();
+                    LAST_UPDATE_SENT = millis();
+                    // Serial.println("send data to broker");
+                    digitalWrite(LED_BUILTIN, HIGH);
+                } 
             }
         }
     }
+    vTaskDelete(readerTask);
 }
 
 // **********************************
@@ -845,6 +857,8 @@ void setup()
     // Serial.printf("MQTT connecting to: %s:%s\n", MQTT_HOST, MQTT_PORT);
 
     // mqtt_client.setServer(MQTT_HOST, atoi(MQTT_PORT));
+
+    xTaskCreate(readP1Hardwareserial, "readerTask", 2048, nullptr, 2, &readerTask);
 }
 
 // **********************************
@@ -875,8 +889,9 @@ void loop()
 
     if (now - LAST_UPDATE_SENT > UPDATE_INTERVAL)
     {
-        digitalWrite(LED_BUILTIN, HIGH);
-        readP1Hardwareserial();
-        digitalWrite(LED_BUILTIN, LOW);
+        //     digitalWrite(LED_BUILTIN, HIGH);
+        //     readP1Hardwareserial();
+        //     digitalWrite(LED_BUILTIN, LOW);
     }
+    sleep(50);
 }
