@@ -1,20 +1,20 @@
 //#include <FS.h>
 #include <arduino.h>
 #include <EEPROM.h>
-#include <DNSServer.h>
-#include <Wifi.h>
+//#include <DNSServer.h>
+//#include <Wifi.h>
 HardwareSerial receivingSerial = Serial2;
 #define RXD2 15
 #define TXD2 14
-#include <Ticker.h>
-#include <WiFiManager.h>
+//#include <Ticker.h>
+//#include <WiFiManager.h>
 #include <time.h>
 
 // * Include settings
 #include "settings.h"
 
 // * Initiate led blinker library
-Ticker ticker;
+//Ticker ticker;
 
 struct tm testTimeInfo;
 struct tm testTimeInfoLast;
@@ -31,64 +31,7 @@ char telegram[P1_MAXLINELENGTH];
 xTaskHandle readerTask;
 int badCRC = 0;
 
-// **********************************
-// * Ticker (System LED Blinker)    *
-// **********************************
 
-// * Blink on-board Led
-void tick()
-{
-    // * Toggle state
-    int state = digitalRead(LED_BUILTIN); // * Get the current state of GPIO1 pin
-    digitalWrite(LED_BUILTIN, !state);    // * Set pin to the opposite state
-}
-
-void send_metric(String name, long metric)
-{
-    // Serial.print(F("Sending metric to broker: "));
-    // Serial.print(name);
-    // Serial.print(F("="));
-    // Serial.println(metric);
-
-    ///////////////////////////////
-
-    // char output[10];
-    // ltoa(metric, output, sizeof(output));
-
-    // String topic = String(MQTT_ROOT_TOPIC) + "/" + name;
-    // send_mqtt_message(topic.c_str(), output);
-}
-
-void send_data_to_broker()
-{
-    send_metric("consumption_low_tarif", consumptionLowTarif);
-    send_metric("consumption_high_tarif", consumptionHighTarif);
-    send_metric("injected_low_tarif", injectedLowTarif);
-    send_metric("injected_high_tarif", injectedHighTarif);
-    send_metric("actual_consumption", consumptionPower);
-    send_metric("actual_injection", injectionPower);
-
-    send_metric("l1_instant_power_usage", L1ConsumptionPower);
-    send_metric("l2_instant_power_usage", L2ConsumptionPower);
-    send_metric("l3_instant_power_usage", L3ConsumptionPower);
-    send_metric("l1_current", L1Current);
-    send_metric("l2_current", L2Current);
-    send_metric("l3_current", L3Current);
-    send_metric("l1_voltage", L1Voltage);
-    send_metric("l2_voltage", L2Voltage);
-    send_metric("l3_voltage", L3Voltage);
-
-    send_metric("gas_meter_m3", GAS_METER_M3);
-
-    send_metric("actual_tarif_group", actualTarif);
-    send_metric("short_power_outages", SHORT_POWER_OUTAGES);
-    send_metric("long_power_outages", LONG_POWER_OUTAGES);
-    send_metric("short_power_drops", SHORT_POWER_DROPS);
-    send_metric("short_power_peaks", SHORT_POWER_PEAKS);
-
-    send_metric("kwartiervermogen", kwartierVermogen);
-    send_metric("kwartiervermogen_maand0", piekkwartierVermogenMaand);
-}
 
 // **********************************
 // * P1                             *
@@ -458,14 +401,15 @@ void processKwartier()
         }
         else
 
-        { // mag wel niet uitgevoerd worden bij aanvang nieuwe maand
+        { // Indien er een nieuwe maand zou begonnen zijn is tellerstand hogerop al aangepast en 
+          // zal kwartiervermogen hier op 0 uitkomen en geen invloed hebben op de nieuwe maand
             kwartierVermogen = (consumptionHighTarif + consumptionLowTarif - tellerstand) * 4;
             tellerstand = consumptionHighTarif + consumptionLowTarif; // tellerstand aan begin van het kwartier
             if (kwartierVermogen > piekkwartierVermogenMaand)
             {
-                piekkwartierVermogenMaand = kwartierVermogen;
-                // kwartierVermogen = consumptionPower;
+                piekkwartierVermogenMaand = kwartierVermogen;    
             }
+            kwartierVermogen = consumptionPower;
         }
 
         memcpy(&testTimeInfoLast, &testTimeInfo, sizeof(testTimeInfo));
@@ -481,7 +425,7 @@ void processKwartier()
         {
             kwartierVermogen = (float)(consumptionHighTarif + consumptionLowTarif - tellerstand) / (secondenverstreken / 3600);
         }
-        else
+        else // is waarschijnlijk overbodig
         {
             kwartierVermogen = (float)consumptionPower;
         }
@@ -528,7 +472,7 @@ void readP1Hardwareserial(void *parameter)
                 if (processLine(len))
                 {
                     processKwartier();
-                    send_data_to_broker();
+                    //send_data_to_broker();
                     LAST_UPDATE_SENT = millis();
                     // Serial.println("send data to broker");
                     digitalWrite(LED_BUILTIN, HIGH);
@@ -556,52 +500,11 @@ void setup()
 
     digitalWrite(LED_BUILTIN, LOW);
 
-    // * Configure OTA
-    // setup_ota();
-
-    // * Startup MDNS Service
-    // setup_mdns();
-
-    // * Setup MQTT
-    // Serial.printf("MQTT connecting to: %s:%s\n", MQTT_HOST, MQTT_PORT);
-
-    // mqtt_client.setServer(MQTT_HOST, atoi(MQTT_PORT));
-
     xTaskCreate(readP1Hardwareserial, "readerTask", 2048, nullptr, 2, &readerTask);
 }
 
-// **********************************
-// * Loop                           *
-// **********************************
 
 void loop()
 {
-    // ArduinoOTA.handle();
-    long now = millis();
-
-    // if (!mqtt_client.connected())
-    //{
-    //     if (now - LAST_RECONNECT_ATTEMPT > 5000)
-    //     {
-    //         LAST_RECONNECT_ATTEMPT = now;
-
-    //        if (mqtt_reconnect())
-    //        {
-    //            LAST_RECONNECT_ATTEMPT = 0;
-    //        }
-    //    }
-    //}
-    // else
-    //{
-    //    mqtt_client.loop();
-    //}
-
-
-    if (now - LAST_UPDATE_SENT > UPDATE_INTERVAL)
-    {
-        //     digitalWrite(LED_BUILTIN, HIGH);
-        //     readP1Hardwareserial();
-        //     digitalWrite(LED_BUILTIN, LOW);
-    }
     sleep(1500);
 }
