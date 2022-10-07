@@ -19,8 +19,8 @@ Ticker ticker;
 struct tm testTimeInfo;
 struct tm testTimeInfoLast;
 float kwartierVermogen = 0;
-float kwartierVermogenMaand = 0;
-float kwartierVermogenVorigeMaand = 0;
+float piekkwartierVermogenMaand = 0;
+float piekkwartierVermogenVorigeMaand = 0;
 float tellerstand = 0;
 bool shouldSaveConfig = false;
 int startup = 2;
@@ -87,7 +87,7 @@ void send_data_to_broker()
     send_metric("short_power_peaks", SHORT_POWER_PEAKS);
 
     send_metric("kwartiervermogen", kwartierVermogen);
-    send_metric("kwartiervermogen_maand0", kwartierVermogenMaand);
+    send_metric("kwartiervermogen_maand0", piekkwartierVermogenMaand);
 }
 
 // **********************************
@@ -157,8 +157,12 @@ long getValue(char *buffer, int maxlen, char startchar, char endchar)
         if (endchar == '*')
         {
             if (isNumber(res, l))
-                // * Lazy convert float to long
-                return (1000 * atof(res));
+            {
+                // preserve round() below to get around some 
+                // float quircks, otherwise "000016.005" becomes
+                // 16004 and "000016.025" becomes 16024
+                return round((1000 * atof(res)));
+            }
         }
         else if (endchar == ')')
         {
@@ -177,7 +181,7 @@ bool decodeTelegram(int len)
 
     for (int cnt = 0; cnt < len; cnt++)
     {
-        Serial.print(telegram[cnt]);
+        //    Serial.print(telegram[cnt]);
     }
 
     if (startChar >= 0)
@@ -226,6 +230,7 @@ bool decodeTelegram(int len)
             // 1-0:1.8.2 = Elektriciteit verbruik hoog tarief (DSMR v5.0)
             if (strncmp(telegram, "1-0:1.8.1", strlen("1-0:1.8.1")) == 0)
             {
+                Serial.println(telegram);
                 consumptionHighTarif = getValue(telegram, len, '(', '*');
             }
             else
@@ -384,7 +389,7 @@ bool decodeTelegram(int len)
                         char temp[] = {telegram[10], telegram[11], 0};
                         testTimeInfo.tm_year = 100 + atoi(temp); // telt vanaf 1900
                         strncpy(temp, &telegram[12], 2);
-                        testTimeInfo.tm_mon = atoi(temp);
+                        testTimeInfo.tm_mon = atoi(temp) - 1;
                         strncpy(temp, &telegram[14], 2);
                         testTimeInfo.tm_mday = atoi(temp);
                         strncpy(temp, &telegram[16], 2);
@@ -398,7 +403,7 @@ bool decodeTelegram(int len)
                         // Sunday, November 01 2019 09:03:45
                         // Serial.println(&testTimeInfo, "%A, %B %d %Y %H:%M:%S"); // struct tm testTimeInfo is Posix !!
                         // November 01 2019 09:03:45
-                        // Serial.println(&testTimeInfo, "%B %d %Y %H:%M:%S");
+                        Serial.println(&testTimeInfo, "%B %d %Y %H:%M:%S");
                     }
     }
 
@@ -411,8 +416,8 @@ int getKwartier(tm timeInfo)
     kwartier = timeInfo.tm_hour * 4;
     kwartier = kwartier + ((timeInfo.tm_mday - 1) * 96);
     kwartier = kwartier + (timeInfo.tm_min / 15);
-    // Serial.print("kwartier = ");
-    // Serial.println(kwartier);
+    Serial.print("kwartier = ");
+    Serial.println(kwartier);
     return kwartier;
 }
 
@@ -424,12 +429,12 @@ void processKwartier()
     if (testTimeInfo.tm_mday < testTimeInfoLast.tm_mday)
     {
         kwartierVermogen = (consumptionHighTarif + consumptionLowTarif - tellerstand) * 4;
-        if (kwartierVermogen > kwartierVermogenMaand)
+        if (kwartierVermogen > piekkwartierVermogenMaand)
         {
-            kwartierVermogenMaand = kwartierVermogen;
+            piekkwartierVermogenMaand = kwartierVermogen;
         }
-        kwartierVermogenVorigeMaand = kwartierVermogenMaand;
-        kwartierVermogenMaand = 0;
+        piekkwartierVermogenVorigeMaand = piekkwartierVermogenMaand;
+        piekkwartierVermogenMaand = 0;
         tellerstand = consumptionHighTarif + consumptionLowTarif; // tellerstand aan begin van het kwartier
         kwartierVermogen = (float)consumptionPower;
         memcpy(&testTimeInfoLast, &testTimeInfo, sizeof(testTimeInfo));
@@ -456,9 +461,9 @@ void processKwartier()
         { // mag wel niet uitgevoerd worden bij aanvang nieuwe maand
             kwartierVermogen = (consumptionHighTarif + consumptionLowTarif - tellerstand) * 4;
             tellerstand = consumptionHighTarif + consumptionLowTarif; // tellerstand aan begin van het kwartier
-            if (kwartierVermogen > kwartierVermogenMaand)
+            if (kwartierVermogen > piekkwartierVermogenMaand)
             {
-                kwartierVermogenMaand = kwartierVermogen;
+                piekkwartierVermogenMaand = kwartierVermogen;
                 // kwartierVermogen = consumptionPower;
             }
         }
@@ -474,7 +479,7 @@ void processKwartier()
         secondenverstreken = secondenverstreken + testTimeInfo.tm_sec;
         if (!startup && secondenverstreken > 0)
         {
-            kwartierVermogen = (consumptionHighTarif + consumptionLowTarif - tellerstand) / (secondenverstreken / 3600);
+            kwartierVermogen = (float)(consumptionHighTarif + consumptionLowTarif - tellerstand) / (secondenverstreken / 3600);
         }
         else
         {
@@ -486,14 +491,15 @@ void processKwartier()
 
     Serial.print("vermogen = ");
     Serial.println(consumptionPower);
-    Serial.print("kwartiervermogen vorige maand = ");
-    Serial.println(kwartierVermogenVorigeMaand);
-    Serial.print("kwartiervermogen maand = ");
-    Serial.println(kwartierVermogenMaand);
+    Serial.print("piekkwartiervermogen vorige maand = ");
+    Serial.println(piekkwartierVermogenVorigeMaand);
+    Serial.print("piekkwartiervermogen maand = ");
+    Serial.println(piekkwartierVermogenMaand);
     Serial.print("kwartiervermogen = ");
     Serial.println(kwartierVermogen);
-    Serial.print("badCRC = ");
-    Serial.println(badCRC);
+    // Serial.print("badCRC = ");
+    // Serial.println(badCRC);
+    Serial.println("");
 }
 
 bool processLine(int len)
@@ -533,9 +539,6 @@ void readP1Hardwareserial(void *parameter)
     vTaskDelete(readerTask);
 }
 
-// **********************************
-// * Setup Main                     *
-// **********************************
 
 void setup()
 {
@@ -593,11 +596,12 @@ void loop()
     //    mqtt_client.loop();
     //}
 
+
     if (now - LAST_UPDATE_SENT > UPDATE_INTERVAL)
     {
         //     digitalWrite(LED_BUILTIN, HIGH);
         //     readP1Hardwareserial();
         //     digitalWrite(LED_BUILTIN, LOW);
     }
-    sleep(500);
+    sleep(1500);
 }
