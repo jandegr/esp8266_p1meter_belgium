@@ -1,6 +1,6 @@
 //#include <FS.h>
 #include <arduino.h>
-#include <EEPROM.h>
+//#include <EEPROM.h>
 //#include <DNSServer.h>
 //#include <Wifi.h>
 HardwareSerial receivingSerial = Serial2;
@@ -14,7 +14,7 @@ HardwareSerial receivingSerial = Serial2;
 #include "settings.h"
 
 // * Initiate led blinker library
-//Ticker ticker;
+// Ticker ticker;
 
 struct tm testTimeInfo;
 struct tm testTimeInfoLast;
@@ -30,8 +30,6 @@ unsigned int currentCRC = 0;
 char telegram[P1_MAXLINELENGTH];
 xTaskHandle readerTask;
 int badCRC = 0;
-
-
 
 // **********************************
 // * P1                             *
@@ -101,7 +99,7 @@ long getValue(char *buffer, int maxlen, char startchar, char endchar)
         {
             if (isNumber(res, l))
             {
-                // preserve round() below to get around some 
+                // preserve round() below to get around some
                 // float quircks, otherwise "000016.005" becomes
                 // 16004 and "000016.025" becomes 16024
                 return round((1000 * atof(res)));
@@ -332,7 +330,7 @@ bool decodeTelegram(int len)
                         char temp[] = {telegram[10], telegram[11], 0};
                         testTimeInfo.tm_year = 100 + atoi(temp); // telt vanaf 1900
                         strncpy(temp, &telegram[12], 2);
-                        testTimeInfo.tm_mon = atoi(temp) - 1;
+                        testTimeInfo.tm_mon = atoi(temp) - 1; // tm_mon = 0..11
                         strncpy(temp, &telegram[14], 2);
                         testTimeInfo.tm_mday = atoi(temp);
                         strncpy(temp, &telegram[16], 2);
@@ -359,6 +357,15 @@ int getKwartier(tm timeInfo)
     kwartier = timeInfo.tm_hour * 4;
     kwartier = kwartier + ((timeInfo.tm_mday - 1) * 96);
     kwartier = kwartier + (timeInfo.tm_min / 15);
+    if (!timeInfo.tm_isdst)
+    {
+        kwartier = kwartier + 4;
+        Serial.print("wintertijd ");
+    }
+    else
+    {
+        Serial.print("zomertijd ");
+    }
     Serial.print("kwartier = ");
     Serial.println(kwartier);
     return kwartier;
@@ -401,15 +408,15 @@ void processKwartier()
         }
         else
 
-        { // Indien er een nieuwe maand zou begonnen zijn is tellerstand hogerop al aangepast en 
+        { // Indien er een nieuwe maand zou begonnen zijn is tellerstand hogerop al aangepast en
           // zal kwartiervermogen hier op 0 uitkomen en geen invloed hebben op de nieuwe maand
             kwartierVermogen = (consumptionHighTarif + consumptionLowTarif - tellerstand) * 4;
             tellerstand = consumptionHighTarif + consumptionLowTarif; // tellerstand aan begin van het kwartier
             if (kwartierVermogen > piekkwartierVermogenMaand)
             {
-                piekkwartierVermogenMaand = kwartierVermogen;    
+                piekkwartierVermogenMaand = kwartierVermogen;
             }
-            kwartierVermogen = consumptionPower;
+            kwartierVermogen = consumptionPower; // wegens nog geen tijd in het nieuwe kwartier
         }
 
         memcpy(&testTimeInfoLast, &testTimeInfo, sizeof(testTimeInfo));
@@ -472,7 +479,7 @@ void readP1Hardwareserial(void *parameter)
                 if (processLine(len))
                 {
                     processKwartier();
-                    //send_data_to_broker();
+                    // send_data_to_broker();
                     LAST_UPDATE_SENT = millis();
                     // Serial.println("send data to broker");
                     digitalWrite(LED_BUILTIN, HIGH);
@@ -482,7 +489,6 @@ void readP1Hardwareserial(void *parameter)
     }
     vTaskDelete(readerTask);
 }
-
 
 void setup()
 {
@@ -502,7 +508,6 @@ void setup()
 
     xTaskCreate(readP1Hardwareserial, "readerTask", 2048, nullptr, 2, &readerTask);
 }
-
 
 void loop()
 {
