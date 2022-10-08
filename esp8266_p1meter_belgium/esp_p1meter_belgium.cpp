@@ -4,17 +4,17 @@
 //#include <DNSServer.h>
 //#include <Wifi.h>
 HardwareSerial receivingSerial = Serial2;
-#define RXD2 15
-#define TXD2 14
+#define RXD2 13 // AZDelivery
+#define TXD2 14 // not used
 //#include <Ticker.h>
 //#include <WiFiManager.h>
 #include <time.h>
+#include "esp_log.h"
 
 // * Include settings
 #include "settings.h"
 
-// * Initiate led blinker library
-// Ticker ticker;
+#define TAG "P1_APP"
 
 struct tm testTimeInfo;
 struct tm testTimeInfoLast;
@@ -22,18 +22,14 @@ float kwartierVermogen = 0;
 float piekkwartierVermogenMaand = 0;
 float piekkwartierVermogenVorigeMaand = 0;
 float tellerstand = 0;
-bool shouldSaveConfig = false;
 int startup = 2;
-// * Set during CRC checking
 unsigned int currentCRC = 0;
 // * Set to store received telegram
 char telegram[P1_MAXLINELENGTH];
 xTaskHandle readerTask;
 int badCRC = 0;
 
-// **********************************
-// * P1                             *
-// **********************************
+
 
 unsigned int CRC16(unsigned int crc, unsigned char *buf, int len)
 {
@@ -89,7 +85,7 @@ long getValue(char *buffer, int maxlen, char startchar, char endchar)
 
     if (!((l + s + 1) > s))
     {
-        Serial.println("malformed input");
+        ESP_LOGE(TAG, "malformed input");
         return 0;
     }
 
@@ -144,7 +140,7 @@ bool decodeTelegram(int len)
 
         if (!validCRCFound)
         {
-            Serial.println(F("CRC Invalid!"));
+            ESP_LOGE(TAG, "CRC Invalid!");
             badCRC++;
         }
 
@@ -327,6 +323,7 @@ bool decodeTelegram(int len)
                     // TST
                     else if ((strncmp(telegram, "0-0:1.0.0", strlen("0-0:1.0.0")) == 0) && (len >= 24))
                     {
+                        char buff[30]; 
                         char temp[] = {telegram[10], telegram[11], 0};
                         testTimeInfo.tm_year = 100 + atoi(temp); // telt vanaf 1900
                         strncpy(temp, &telegram[12], 2);
@@ -340,11 +337,10 @@ bool decodeTelegram(int len)
                         strncpy(temp, &telegram[20], 2);
                         testTimeInfo.tm_sec = atoi(temp);
                         testTimeInfo.tm_isdst = (telegram[22] == 'S');
-                        // https://randomnerdtutorials.com/esp32-date-time-ntp-client-server-arduino/
-                        // Sunday, November 01 2019 09:03:45
-                        // Serial.println(&testTimeInfo, "%A, %B %d %Y %H:%M:%S"); // struct tm testTimeInfo is Posix !!
-                        // November 01 2019 09:03:45
-                        Serial.println(&testTimeInfo, "%B %d %Y %H:%M:%S");
+                        
+                        
+                        strftime(buff, 30, "%B %d %Y %H:%M:%S\n" , &testTimeInfo);
+                        ESP_LOGE(TAG, "%s", buff);
                     }
     }
 
@@ -360,14 +356,14 @@ int getKwartier(tm timeInfo)
     if (!timeInfo.tm_isdst)
     {
         kwartier = kwartier + 4;
-        Serial.print("wintertijd ");
+        printf("wintertijd ");
     }
     else
     {
-        Serial.print("zomertijd ");
+        printf("zomertijd ");
     }
-    Serial.print("kwartier = ");
-    Serial.println(kwartier);
+    printf("kwartier = ");
+    printf("%d\n", kwartier);
     return kwartier;
 }
 
@@ -388,7 +384,7 @@ void processKwartier()
         tellerstand = consumptionHighTarif + consumptionLowTarif; // tellerstand aan begin van het kwartier
         kwartierVermogen = (float)consumptionPower;
         memcpy(&testTimeInfoLast, &testTimeInfo, sizeof(testTimeInfo));
-        Serial.println("nieuwe maand begonnen");
+        printf("nieuwe maand begonnen\n");
     }
 
     if (startup > 1 && deltaKwartier > 0)
@@ -425,39 +421,35 @@ void processKwartier()
     {
         // nu lopend kwartiervermogen bepalen
         // onderstaande nog verrekenen met verstreken tijd
-        float secondenverstreken;
+        int secondenverstreken;
         secondenverstreken = (testTimeInfo.tm_min % 15) * 60;
         secondenverstreken = secondenverstreken + testTimeInfo.tm_sec;
         if (!startup && secondenverstreken > 0)
         {
-            kwartierVermogen = (float)(consumptionHighTarif + consumptionLowTarif - tellerstand) / (secondenverstreken / 3600);
+            kwartierVermogen = (float)(consumptionHighTarif + consumptionLowTarif - tellerstand) / ((float)secondenverstreken / 3600);
         }
         else // is waarschijnlijk overbodig
         {
             kwartierVermogen = (float)consumptionPower;
         }
-        Serial.print("secondenverstreken = ");
-        Serial.println(secondenverstreken);
+        printf("secondenverstreken = %d\n", secondenverstreken);
+        
     }
 
-    Serial.print("vermogen = ");
-    Serial.println(consumptionPower);
-    Serial.print("piekkwartiervermogen vorige maand = ");
-    Serial.println(piekkwartierVermogenVorigeMaand);
-    Serial.print("piekkwartiervermogen maand = ");
-    Serial.println(piekkwartierVermogenMaand);
-    Serial.print("kwartiervermogen = ");
-    Serial.println(kwartierVermogen);
+    printf("vermogen = %ld\n", consumptionPower);
+    printf("piekkwartiervermogen vorige maand = %f\n", piekkwartierVermogenVorigeMaand);
+    printf("piekkwartiervermogen maand = %f\n", piekkwartierVermogenMaand);
+    printf("kwartiervermogen = %f\n", kwartierVermogen);
     // Serial.print("badCRC = ");
     // Serial.println(badCRC);
-    Serial.println("");
+    printf("\n");
 }
 
 bool processLine(int len)
 {
     telegram[len] = '\n';
     telegram[len + 1] = 0;
-    yield();
+    //yield();
 
     return (decodeTelegram(len + 1));
 }
@@ -468,7 +460,7 @@ void readP1Hardwareserial(void *parameter)
     {
         if (receivingSerial.available())
         {
-            digitalWrite(LED_BUILTIN, LOW);
+            //digitalWrite(LED_BUILTIN, LOW);
             memset(telegram, 0, sizeof(telegram));
 
             while (receivingSerial.available())
@@ -480,10 +472,11 @@ void readP1Hardwareserial(void *parameter)
                     processKwartier();
                     // send_data_to_broker();
                     
-                    digitalWrite(LED_BUILTIN, HIGH);
+                    //digitalWrite(LED_BUILTIN, HIGH);
                 }
             }
         }
+        vTaskDelay(5);
     }
     vTaskDelete(readerTask);
 }
@@ -493,16 +486,13 @@ void setup()
     memset(&testTimeInfo, 0, sizeof(testTimeInfo));
     memset(&testTimeInfoLast, 0, sizeof(testTimeInfoLast));
 
-    Serial.begin(BAUD_RATE1);
-    Serial2.begin(BAUD_RATE, SERIAL_8N1, RXD2, TXD2, true); // INVERT
+    //Serial.begin(BAUD_RATE1);
+    Serial2.begin(115200, SERIAL_8N1, RXD2, TXD2, true); // INVERT
     receivingSerial = Serial2;
 
-    Serial.println("Serial port is ready to recieve.");
+    esp_log_level_set(TAG, ESP_LOG_INFO);
 
-    // * Set led pin as output
-    pinMode(LED_BUILTIN, OUTPUT);
-
-    digitalWrite(LED_BUILTIN, LOW);
+    printf("Serial port is ready to recieve.\n");
 
     xTaskCreate(readP1Hardwareserial, "readerTask", 2048, nullptr, 2, &readerTask);
 }
