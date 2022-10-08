@@ -473,15 +473,13 @@ void readP1Hardwareserial(void *parameter)
 
             while (receivingSerial.available())
             {
-
                 int len = receivingSerial.readBytesUntil('\n', telegram, P1_MAXLINELENGTH);
 
                 if (processLine(len))
                 {
                     processKwartier();
                     // send_data_to_broker();
-                    LAST_UPDATE_SENT = millis();
-                    // Serial.println("send data to broker");
+                    
                     digitalWrite(LED_BUILTIN, HIGH);
                 }
             }
