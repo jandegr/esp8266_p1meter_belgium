@@ -472,7 +472,6 @@ void readP1Hardwareserial(void *parameter)
                     processKwartier();
                     // send_data_to_broker();
                     
-                    //digitalWrite(LED_BUILTIN, HIGH);
                 }
             }
         }
