@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <math.h>
+#include <string.h>
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -27,6 +29,12 @@ int receivingSerial;
 char telegram[P1_MAXLINELENGTH];
 xTaskHandle readerTask;
 int badCRC = 0;
+
+extern "C"
+{
+  void app_main(void);
+}
+
 
 unsigned int CRC16(unsigned int crc, unsigned char *buf, int len)
 {
@@ -164,7 +172,7 @@ bool decodeTelegram(int len)
             // 1-0:1.8.2 = Elektriciteit verbruik hoog tarief (DSMR v5.0)
             if (strncmp(telegram, "1-0:1.8.1", strlen("1-0:1.8.1")) == 0)
             {
-                Serial.println(telegram);
+                printf("%s", telegram);
                 consumptionHighTarif = getValue(telegram, len, '(', '*');
             }
             else
@@ -504,7 +512,7 @@ void app_main()
         .parity = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-        //.rx_flow_ctrl_thresh = 122,
+        .rx_flow_ctrl_thresh = 122,
         //   .source_clk = UART_SCLK_DEFAULT, (is voor IDF 5.XX !!!!!)
         .source_clk = UART_SCLK_APB,
     };
