@@ -1,14 +1,12 @@
-//#include <FS.h>
-#include <arduino.h>
-//#include <EEPROM.h>
-//#include <DNSServer.h>
-//#include <Wifi.h>
-HardwareSerial receivingSerial = Serial2;
+#include <stdio.h>
+#include "sdkconfig.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_system.h"
 #define RXD2 13 // AZDelivery
 #define TXD2 14 // not used
-//#include <Ticker.h>
-//#include <WiFiManager.h>
 #include <time.h>
+#include "driver/uart.h"
 #include "esp_log.h"
 
 // * Include settings
@@ -24,12 +22,11 @@ float piekkwartierVermogenVorigeMaand = 0;
 float tellerstand = 0;
 int startup = 2;
 unsigned int currentCRC = 0;
+int receivingSerial;
 // * Set to store received telegram
 char telegram[P1_MAXLINELENGTH];
 xTaskHandle readerTask;
 int badCRC = 0;
-
-
 
 unsigned int CRC16(unsigned int crc, unsigned char *buf, int len)
 {
@@ -323,7 +320,7 @@ bool decodeTelegram(int len)
                     // TST
                     else if ((strncmp(telegram, "0-0:1.0.0", strlen("0-0:1.0.0")) == 0) && (len >= 24))
                     {
-                        char buff[30]; 
+                        char buff[30];
                         char temp[] = {telegram[10], telegram[11], 0};
                         testTimeInfo.tm_year = 100 + atoi(temp); // telt vanaf 1900
                         strncpy(temp, &telegram[12], 2);
@@ -337,9 +334,8 @@ bool decodeTelegram(int len)
                         strncpy(temp, &telegram[20], 2);
                         testTimeInfo.tm_sec = atoi(temp);
                         testTimeInfo.tm_isdst = (telegram[22] == 'S');
-                        
-                        
-                        strftime(buff, 30, "%B %d %Y %H:%M:%S\n" , &testTimeInfo);
+
+                        strftime(buff, 30, "%B %d %Y %H:%M:%S\n", &testTimeInfo);
                         ESP_LOGE(TAG, "%s", buff);
                     }
     }
@@ -433,7 +429,6 @@ void processKwartier()
             kwartierVermogen = (float)consumptionPower;
         }
         printf("secondenverstreken = %d\n", secondenverstreken);
-        
     }
 
     printf("vermogen = %ld\n", consumptionPower);
@@ -445,58 +440,93 @@ void processKwartier()
     printf("\n");
 }
 
-bool processLine(int len)
-{
-    telegram[len] = '\n';
-    telegram[len + 1] = 0;
-    //yield();
-
-    return (decodeTelegram(len + 1));
-}
-
 void readP1Hardwareserial(void *parameter)
 {
+#define PACKET_READ_TICS (650 / portTICK_PERIOD_MS)
+    printf("readertask started\n");
     while (true)
     {
-        if (receivingSerial.available())
+        size_t avail = 0;
+        uart_get_buffered_data_len(receivingSerial, &avail);
+
+        if (avail > 0)
         {
-            //digitalWrite(LED_BUILTIN, LOW);
+            //printf("bytes avail = %d\n", avail);
+            // digitalWrite(LED_BUILTIN, LOW);
             memset(telegram, 0, sizeof(telegram));
-
-            while (receivingSerial.available())
+            int len = 0;
+            bool stop = false;
+            while (avail > 0 && stop==false && len < (P1_MAXLINELENGTH - 5)) //??
             {
-                int len = receivingSerial.readBytesUntil('\n', telegram, P1_MAXLINELENGTH);
-
-                if (processLine(len))
+                int gelezen = uart_read_bytes(receivingSerial, &telegram[len], 1, 100 / portTICK_PERIOD_MS);
+                // len = receivingSerial.readBytesUntil('\n', telegram, P1_MAXLINELENGTH);
+                //printf("%d bytes gelezen = %s\n\n\n", gelezen, telegram);
+                
+                if (telegram[len] == '\n') // '\n'
                 {
-                    processKwartier();
-                    // send_data_to_broker();
-                    
+                    stop = true;
                 }
+                
+                else
+                {
+                    uart_get_buffered_data_len(receivingSerial, &avail);
+                 //   printf("bytes avail2 = %d\n", avail);
+                }
+                len = len + gelezen;
+            }
+            printf("%d bytes gelezen = %s\n", len, telegram);
+            telegram[len] = 0; // moet na memset waarschijnlijk niet meer
+            if (decodeTelegram(len))  // naam zou decodeline mogen zijn
+            {
+                processKwartier();
+                // send_data_to_broker();
             }
         }
-        vTaskDelay(5);
+        vTaskDelay(1);
     }
     vTaskDelete(readerTask);
 }
 
-void setup()
+void app_main()
 {
+    // const int uart_num = 2;
+    const int READ_BUF_SIZE = 1024;
     memset(&testTimeInfo, 0, sizeof(testTimeInfo));
     memset(&testTimeInfoLast, 0, sizeof(testTimeInfoLast));
 
-    //Serial.begin(BAUD_RATE1);
-    Serial2.begin(115200, SERIAL_8N1, RXD2, TXD2, true); // INVERT
-    receivingSerial = Serial2;
+    // Serial.begin(BAUD_RATE1);
+    // Serial2.begin(115200, SERIAL_8N1, RXD2, TXD2, true); // INVERT
+    receivingSerial = UART_NUM_2;
+
+    uart_config_t uart_config = {
+        .baud_rate = 115200,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        //.rx_flow_ctrl_thresh = 122,
+        //   .source_clk = UART_SCLK_DEFAULT, (is voor IDF 5.XX !!!!!)
+        .source_clk = UART_SCLK_APB,
+    };
+
+    // Install UART driver (we don't need an event queue here)
+    // In this example we don't even use a buffer for sending data.
+    ESP_ERROR_CHECK(uart_driver_install(receivingSerial, READ_BUF_SIZE * 2, 0, 0, NULL, 0));
+
+    // Configure UART parameters
+    ESP_ERROR_CHECK(uart_param_config(receivingSerial, &uart_config));
+
+    // Set UART pins
+    ESP_ERROR_CHECK(uart_set_pin(receivingSerial, TXD2, RXD2, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+
+    // ESP_ERROR_CHECK(uart_set_mode(receivingSerial, UART_MODE_UART)); // regualr UART mode
+    ESP_ERROR_CHECK(uart_set_line_inverse(receivingSerial, UART_SIGNAL_RXD_INV)); // invert receive
+    // Set read timeout of UART TOUT feature
+    // ESP_ERROR_CHECK(uart_set_rx_timeout(uart_num, ECHO_READ_TOUT));
 
     esp_log_level_set(TAG, ESP_LOG_INFO);
 
     printf("Serial port is ready to recieve.\n");
 
     xTaskCreate(readP1Hardwareserial, "readerTask", 2048, nullptr, 2, &readerTask);
-}
-
-void loop()
-{
-    sleep(1500);
 }
