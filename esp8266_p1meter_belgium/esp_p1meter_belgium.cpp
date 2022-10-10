@@ -5,8 +5,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_system.h"
-#define RXD2 13 // AZDelivery
-#define TXD2 14 // not used
+
 #include <time.h>
 #include "driver/uart.h"
 #include "esp_log.h"
@@ -15,6 +14,8 @@
 #include "settings.h"
 
 #define TAG "P1_APP"
+#define RXD2 13 // AZDelivery
+#define TXD2 14 // not used
 
 struct tm testTimeInfo;
 struct tm testTimeInfoLast;
@@ -22,19 +23,14 @@ float kwartierVermogen = 0;
 float piekkwartierVermogenMaand = 0;
 float piekkwartierVermogenVorigeMaand = 0;
 float tellerstand = 0;
-int startup = 2;
 unsigned int currentCRC = 0;
 int receivingSerial;
-// * Set to store received telegram
-char telegram[P1_MAXLINELENGTH];
 xTaskHandle readerTask;
-int badCRC = 0;
 
 extern "C"
 {
-  void app_main(void);
+    void app_main(void);
 }
-
 
 unsigned int CRC16(unsigned int crc, unsigned char *buf, int len)
 {
@@ -115,30 +111,31 @@ long getValue(char *buffer, int maxlen, char startchar, char endchar)
     return 0;
 }
 
-bool decodeTelegram(int len)
+// returns true if line is a valid CRC
+bool decodeLine(int len, char line[])
 {
-    int startChar = FindCharInArrayRev(telegram, '/', len);
-    int endChar = FindCharInArrayRev(telegram, '!', len);
+    int startChar = FindCharInArrayRev(line, '/', len);
+    int endChar = FindCharInArrayRev(line, '!', len);
     bool validCRCFound = false;
 
     for (int cnt = 0; cnt < len; cnt++)
     {
-        //    Serial.print(telegram[cnt]);
+        //    Serial.print(line[cnt]);
     }
 
     if (startChar >= 0)
     {
         // * Start found. Reset CRC calculation
-        currentCRC = CRC16(0x0000, (unsigned char *)telegram + startChar, len - startChar);
+        currentCRC = CRC16(0x0000, (unsigned char *)line + startChar, len - startChar);
     }
     else if (endChar >= 0)
     {
         char messageCRC[5];
         memset(messageCRC, 0, sizeof(messageCRC));
         // * Add to crc calc
-        currentCRC = CRC16(currentCRC, (unsigned char *)telegram + endChar, 1);
+        currentCRC = CRC16(currentCRC, (unsigned char *)line + endChar, 1);
 
-        strncpy(messageCRC, telegram + endChar + 1, 4);
+        strncpy(messageCRC, line + endChar + 1, 4);
         validCRCFound = (strtol(messageCRC, NULL, 16) == currentCRC);
         // Serial.print("CRC = ");
         // Serial.println(currentCRC, HEX);
@@ -146,202 +143,202 @@ bool decodeTelegram(int len)
         if (!validCRCFound)
         {
             ESP_LOGE(TAG, "CRC Invalid!");
-            badCRC++;
+            //badCRC++;
         }
 
         currentCRC = 0;
     }
     else
     {
-        currentCRC = CRC16(currentCRC, (unsigned char *)telegram, len);
+        currentCRC = CRC16(currentCRC, (unsigned char *)line, len);
     }
 
     // L1, L2 en L3 power injectie ontbreken (1-0:22.7.0) enzovoort
 
-    if (strncmp(telegram, "1", 1) == 0)
+    if (strncmp(line, "1", 1) == 0)
     {
         // 1-0:1.8.1(000992.992*kWh)
         // 1-0:1.8.1 = Elektriciteit verbruik laag tarief (DSMR v5.0)
-        if (strncmp(telegram, "1-0:1.8.2", strlen("1-0:1.8.2")) == 0)
+        if (strncmp(line, "1-0:1.8.2", strlen("1-0:1.8.2")) == 0)
         {
-            consumptionLowTarif = getValue(telegram, len, '(', '*');
+            consumptionLowTarif = getValue(line, len, '(', '*');
         }
         else
 
             // 1-0:1.8.2(000560.157*kWh)
             // 1-0:1.8.2 = Elektriciteit verbruik hoog tarief (DSMR v5.0)
-            if (strncmp(telegram, "1-0:1.8.1", strlen("1-0:1.8.1")) == 0)
+            if (strncmp(line, "1-0:1.8.1", strlen("1-0:1.8.1")) == 0)
             {
-                printf("%s", telegram);
-                consumptionHighTarif = getValue(telegram, len, '(', '*');
+                //printf("%s", line);
+                consumptionHighTarif = getValue(line, len, '(', '*');
             }
             else
 
                 // 1-0:2.8.1(000560.157*kWh)
                 // 1-0:2.8.1 = Elektriciteit injectie laag tarief (DSMR v5.0)
-                if (strncmp(telegram, "1-0:2.8.2", strlen("1-0:2.8.2")) == 0)
+                if (strncmp(line, "1-0:2.8.2", strlen("1-0:2.8.2")) == 0)
                 {
-                    injectedLowTarif = getValue(telegram, len, '(', '*');
+                    injectedLowTarif = getValue(line, len, '(', '*');
                 }
                 else
 
                     // 1-0:2.8.2(000560.157*kWh)
                     // 1-0:2.8.2 = Elektriciteit injectie hoog tarief (DSMR v5.0)
-                    if (strncmp(telegram, "1-0:2.8.1", strlen("1-0:2.8.1")) == 0)
+                    if (strncmp(line, "1-0:2.8.1", strlen("1-0:2.8.1")) == 0)
                     {
-                        injectedHighTarif = getValue(telegram, len, '(', '*');
+                        injectedHighTarif = getValue(line, len, '(', '*');
                     }
                     else
 
                         // 1-0:1.7.0(00.424*kW) Actueel verbruik
                         // 1-0:1.7.x = Electricity consumption actual usage (DSMR v5.0)
-                        if (strncmp(telegram, "1-0:1.7.0", strlen("1-0:1.7.0")) == 0)
+                        if (strncmp(line, "1-0:1.7.0", strlen("1-0:1.7.0")) == 0)
                         {
-                            consumptionPower = getValue(telegram, len, '(', '*');
+                            consumptionPower = getValue(line, len, '(', '*');
                         }
                         else
 
                             // 1-0:2.7.0(00.000*kW) Actuele injectie in 1 Watt resolution
-                            if (strncmp(telegram, "1-0:2.7.0", strlen("1-0:2.7.0")) == 0)
+                            if (strncmp(line, "1-0:2.7.0", strlen("1-0:2.7.0")) == 0)
                             {
-                                injectionPower = getValue(telegram, len, '(', '*');
+                                injectionPower = getValue(line, len, '(', '*');
                             }
                             else
 
                                 // 1-0:21.7.0(00.378*kW)
                                 // 1-0:21.7.0 = Instantaan vermogen Elektriciteit levering L1
-                                if (strncmp(telegram, "1-0:21.7.0", strlen("1-0:21.7.0")) == 0)
+                                if (strncmp(line, "1-0:21.7.0", strlen("1-0:21.7.0")) == 0)
                                 {
-                                    L1ConsumptionPower = getValue(telegram, len, '(', '*');
+                                    L1ConsumptionPower = getValue(line, len, '(', '*');
                                 }
                                 else
 
                                     // 1-0:41.7.0(00.378*kW)
                                     // 1-0:41.7.0 = Instantaan vermogen Elektriciteit levering L2
-                                    if (strncmp(telegram, "1-0:41.7.0", strlen("1-0:41.7.0")) == 0)
+                                    if (strncmp(line, "1-0:41.7.0", strlen("1-0:41.7.0")) == 0)
                                     {
-                                        L2ConsumptionPower = getValue(telegram, len, '(', '*');
+                                        L2ConsumptionPower = getValue(line, len, '(', '*');
                                     }
                                     else
 
                                         // 1-0:61.7.0(00.378*kW)
                                         // 1-0:61.7.0 = Instantaan vermogen Elektriciteit levering L3
-                                        if (strncmp(telegram, "1-0:61.7.0", strlen("1-0:61.7.0")) == 0)
+                                        if (strncmp(line, "1-0:61.7.0", strlen("1-0:61.7.0")) == 0)
                                         {
-                                            L3ConsumptionPower = getValue(telegram, len, '(', '*');
+                                            L3ConsumptionPower = getValue(line, len, '(', '*');
                                         }
                                         else
 
                                             // 1-0:31.7.0(002*A)
                                             // 1-0:31.7.0 = stroom Elektriciteit L1
-                                            if (strncmp(telegram, "1-0:31.7.0", strlen("1-0:31.7.0")) == 0)
+                                            if (strncmp(line, "1-0:31.7.0", strlen("1-0:31.7.0")) == 0)
                                             {
-                                                L1Current = getValue(telegram, len, '(', '*');
+                                                L1Current = getValue(line, len, '(', '*');
                                             }
                                             else
                                                 // 1-0:51.7.0(002*A)
                                                 // 1-0:51.7.0 = stroom Elektriciteit L2
-                                                if (strncmp(telegram, "1-0:51.7.0", strlen("1-0:51.7.0")) == 0)
+                                                if (strncmp(line, "1-0:51.7.0", strlen("1-0:51.7.0")) == 0)
                                                 {
-                                                    L2Current = getValue(telegram, len, '(', '*');
+                                                    L2Current = getValue(line, len, '(', '*');
                                                 }
                                                 else
                                                     // 1-0:71.7.0(002*A)
                                                     // 1-0:71.7.0 = stroom Elektriciteit L3
-                                                    if (strncmp(telegram, "1-0:71.7.0", strlen("1-0:71.7.0")) == 0)
+                                                    if (strncmp(line, "1-0:71.7.0", strlen("1-0:71.7.0")) == 0)
                                                     {
-                                                        L3Current = getValue(telegram, len, '(', '*');
+                                                        L3Current = getValue(line, len, '(', '*');
                                                     }
                                                     else
 
                                                         // 1-0:32.7.0(232.0*V)
                                                         // 1-0:32.7.0 = Voltage L1
-                                                        if (strncmp(telegram, "1-0:32.7.0", strlen("1-0:32.7.0")) == 0)
+                                                        if (strncmp(line, "1-0:32.7.0", strlen("1-0:32.7.0")) == 0)
                                                         {
-                                                            L1Voltage = getValue(telegram, len, '(', '*');
+                                                            L1Voltage = getValue(line, len, '(', '*');
                                                         }
                                                         else
                                                             // 1-0:52.7.0(232.0*V)
                                                             // 1-0:52.7.0 = Voltage L2
-                                                            if (strncmp(telegram, "1-0:52.7.0", strlen("1-0:52.7.0")) == 0)
+                                                            if (strncmp(line, "1-0:52.7.0", strlen("1-0:52.7.0")) == 0)
                                                             {
-                                                                L2Voltage = getValue(telegram, len, '(', '*');
+                                                                L2Voltage = getValue(line, len, '(', '*');
                                                             }
                                                             else
                                                                 // 1-0:72.7.0(232.0*V)
                                                                 // 1-0:72.7.0 = Voltage L3
-                                                                if (strncmp(telegram, "1-0:72.7.0", strlen("1-0:72.7.0")) == 0)
+                                                                if (strncmp(line, "1-0:72.7.0", strlen("1-0:72.7.0")) == 0)
                                                                 {
-                                                                    L3Voltage = getValue(telegram, len, '(', '*');
+                                                                    L3Voltage = getValue(line, len, '(', '*');
                                                                 }
                                                                 else
 
                                                                     // 1-0:32.32.0(00000)
                                                                     // 1-0:32.32.0 = Aantal korte spanningsdalingen Elektriciteit in fase 1
-                                                                    if (strncmp(telegram, "1-0:32.32.0", strlen("1-0:32.32.0")) == 0)
+                                                                    if (strncmp(line, "1-0:32.32.0", strlen("1-0:32.32.0")) == 0)
                                                                     {
-                                                                        SHORT_POWER_DROPS = getValue(telegram, len, '(', ')');
+                                                                        SHORT_POWER_DROPS = getValue(line, len, '(', ')');
                                                                     }
                                                                     else
 
                                                                         // 1-0:32.36.0(00000)
                                                                         // 1-0:32.36.0 = Aantal korte spanningsstijgingen Elektriciteit in fase 1
-                                                                        if (strncmp(telegram, "1-0:32.36.0", strlen("1-0:32.36.0")) == 0)
+                                                                        if (strncmp(line, "1-0:32.36.0", strlen("1-0:32.36.0")) == 0)
                                                                         {
-                                                                            SHORT_POWER_PEAKS = getValue(telegram, len, '(', ')');
+                                                                            SHORT_POWER_PEAKS = getValue(line, len, '(', ')');
                                                                         }
     }
-    else if (strncmp(telegram, "0", 1) == 0)
+    else if (strncmp(line, "0", 1) == 0)
     {
 
         // 0-1:24.2.1(150531200000S)(00811.923*m3)
         // 0-1:24.2.1 = Gas (DSMR v5.0)
-        if (strncmp(telegram, "0-1:24.2.3", strlen("0-1:24.2.3")) == 0)
+        if (strncmp(line, "0-1:24.2.3", strlen("0-1:24.2.3")) == 0)
         {
-            GAS_METER_M3 = getValue(telegram, len, '(', '*');
+            GAS_METER_M3 = getValue(line, len, '(', '*');
         }
         else
 
             // 0-0:96.14.0(0001)
             // 0-0:96.14.0 = Actual Tarif
-            if (strncmp(telegram, "0-0:96.14.0", strlen("0-0:96.14.0")) == 0)
+            if (strncmp(line, "0-0:96.14.0", strlen("0-0:96.14.0")) == 0)
             {
-                actualTarif = getValue(telegram, len, '(', ')');
+                actualTarif = getValue(line, len, '(', ')');
             }
             else
 
                 // 0-0:96.7.21(00003)
                 // 0-0:96.7.21 = Aantal onderbrekingen Elektriciteit
-                if (strncmp(telegram, "0-0:96.7.21", strlen("0-0:96.7.21")) == 0)
+                if (strncmp(line, "0-0:96.7.21", strlen("0-0:96.7.21")) == 0)
                 {
-                    SHORT_POWER_OUTAGES = getValue(telegram, len, '(', ')');
+                    SHORT_POWER_OUTAGES = getValue(line, len, '(', ')');
                 }
                 else
 
                     // 0-0:96.7.9(00001)
                     // 0-0:96.7.9 = Aantal lange onderbrekingen Elektriciteit
-                    if (strncmp(telegram, "0-0:96.7.9", strlen("0-0:96.7.9")) == 0)
+                    if (strncmp(line, "0-0:96.7.9", strlen("0-0:96.7.9")) == 0)
                     {
-                        LONG_POWER_OUTAGES = getValue(telegram, len, '(', ')');
+                        LONG_POWER_OUTAGES = getValue(line, len, '(', ')');
                     }
                     // 0-0:1.0.0(220616152735S)
                     // TST
-                    else if ((strncmp(telegram, "0-0:1.0.0", strlen("0-0:1.0.0")) == 0) && (len >= 24))
+                    else if ((strncmp(line, "0-0:1.0.0", strlen("0-0:1.0.0")) == 0) && (len >= 24))
                     {
                         char buff[30];
-                        char temp[] = {telegram[10], telegram[11], 0};
+                        char temp[] = {line[10], line[11], 0};
                         testTimeInfo.tm_year = 100 + atoi(temp); // telt vanaf 1900
-                        strncpy(temp, &telegram[12], 2);
+                        strncpy(temp, &line[12], 2);
                         testTimeInfo.tm_mon = atoi(temp) - 1; // tm_mon = 0..11
-                        strncpy(temp, &telegram[14], 2);
+                        strncpy(temp, &line[14], 2);
                         testTimeInfo.tm_mday = atoi(temp);
-                        strncpy(temp, &telegram[16], 2);
+                        strncpy(temp, &line[16], 2);
                         testTimeInfo.tm_hour = atoi(temp);
-                        strncpy(temp, &telegram[18], 2);
+                        strncpy(temp, &line[18], 2);
                         testTimeInfo.tm_min = atoi(temp);
-                        strncpy(temp, &telegram[20], 2);
+                        strncpy(temp, &line[20], 2);
                         testTimeInfo.tm_sec = atoi(temp);
-                        testTimeInfo.tm_isdst = (telegram[22] == 'S');
+                        testTimeInfo.tm_isdst = (line[22] == 'S');
 
                         strftime(buff, 30, "%B %d %Y %H:%M:%S\n", &testTimeInfo);
                         ESP_LOGE(TAG, "%s", buff);
@@ -371,9 +368,9 @@ int getKwartier(tm timeInfo)
     return kwartier;
 }
 
-void processKwartier()
+void processKwartier(int* startup)
 {
-    int deltaKwartier = getKwartier(testTimeInfo) > getKwartier(testTimeInfoLast);
+    bool deltaKwartier = getKwartier(testTimeInfo) > getKwartier(testTimeInfoLast);
 
     // eerste poging om nieuwe maand te verwerken
     if (testTimeInfo.tm_mday < testTimeInfoLast.tm_mday)
@@ -391,19 +388,19 @@ void processKwartier()
         printf("nieuwe maand begonnen\n");
     }
 
-    if (startup > 1 && deltaKwartier > 0)
+    if (*startup > 1 && deltaKwartier)
     {
         memcpy(&testTimeInfoLast, &testTimeInfo, sizeof(testTimeInfo));
         // onderstaande is misschien niet goed ??
         tellerstand = consumptionHighTarif + consumptionLowTarif;
 
-        startup = 1;
+        *startup = 1;
     }
-    else if (deltaKwartier > 0)
+    else if (deltaKwartier)
     {
-        if (startup)
+        if (*startup)
         {
-            startup = 0;
+            *startup = 0;
             tellerstand = consumptionHighTarif + consumptionLowTarif;
         }
         else
@@ -428,7 +425,7 @@ void processKwartier()
         int secondenverstreken;
         secondenverstreken = (testTimeInfo.tm_min % 15) * 60;
         secondenverstreken = secondenverstreken + testTimeInfo.tm_sec;
-        if (!startup && secondenverstreken > 0)
+        if (!*startup && secondenverstreken > 0)
         {
             kwartierVermogen = (float)(consumptionHighTarif + consumptionLowTarif - tellerstand) / ((float)secondenverstreken / 3600);
         }
@@ -443,14 +440,16 @@ void processKwartier()
     printf("piekkwartiervermogen vorige maand = %f\n", piekkwartierVermogenVorigeMaand);
     printf("piekkwartiervermogen maand = %f\n", piekkwartierVermogenMaand);
     printf("kwartiervermogen = %f\n", kwartierVermogen);
-    // Serial.print("badCRC = ");
-    // Serial.println(badCRC);
     printf("\n");
 }
 
-void readP1Hardwareserial(void *parameter)
+void readP1Hardwareserial(void *updater)
 {
 #define PACKET_READ_TICS (650 / portTICK_PERIOD_MS)
+    // * Set to store received line
+    //char telegram[P1_MAXLINELENGTH];
+    char *telegramGlob = (char *)malloc(P1_MAXLINELENGTH);
+    int startup = 2;
     printf("readertask started\n");
     while (true)
     {
@@ -460,33 +459,33 @@ void readP1Hardwareserial(void *parameter)
         if (avail > 0)
         {
             //printf("bytes avail = %d\n", avail);
-            // digitalWrite(LED_BUILTIN, LOW);
-            memset(telegram, 0, sizeof(telegram));
+            //  digitalWrite(LED_BUILTIN, LOW);
+            memset(telegramGlob, 0, P1_MAXLINELENGTH);
             int len = 0;
             bool stop = false;
-            while (avail > 0 && stop==false && len < (P1_MAXLINELENGTH - 5)) //??
+            while (avail > 0 && !stop && len < (P1_MAXLINELENGTH - 5)) //??
             {
-                int gelezen = uart_read_bytes(receivingSerial, &telegram[len], 1, 100 / portTICK_PERIOD_MS);
+                int gelezen = uart_read_bytes(receivingSerial, &telegramGlob[len], 1, 100 / portTICK_PERIOD_MS);
                 // len = receivingSerial.readBytesUntil('\n', telegram, P1_MAXLINELENGTH);
-                //printf("%d bytes gelezen = %s\n\n\n", gelezen, telegram);
-                
-                if (telegram[len] == '\n') // '\n'
+                //printf("%d bytes gelezen = %s\n\n\n", gelezen, telegramGlob);
+
+                if (telegramGlob[len] == '\n') // '\n'
                 {
                     stop = true;
                 }
-                
+
                 else
                 {
                     uart_get_buffered_data_len(receivingSerial, &avail);
-                 //   printf("bytes avail2 = %d\n", avail);
+                    //printf("bytes avail2 = %d\n", avail);
                 }
                 len = len + gelezen;
             }
-            printf("%d bytes gelezen = %s\n", len, telegram);
-            telegram[len] = 0; // moet na memset waarschijnlijk niet meer
-            if (decodeTelegram(len))  // naam zou decodeline mogen zijn
+            //printf("%d bytes gelezen = %s\n", len, telegramGlob);
+            telegramGlob[len] = 0; // moet na memset waarschijnlijk niet meer
+            if (decodeLine(len, telegramGlob))
             {
-                processKwartier();
+                processKwartier(&startup);
                 // send_data_to_broker();
             }
         }
